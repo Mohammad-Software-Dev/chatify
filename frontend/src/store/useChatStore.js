@@ -105,10 +105,15 @@ export const useChatStore = create((set, get) => ({
     if (!selectedUser || !hasMoreMessages || isLoadingMoreMessages) return;
 
     const oldestMessage = messages[0];
-    if (!oldestMessage?.createdAt) return;
+    const before =
+      oldestMessage?.createdAt ||
+      oldestMessage?.sentAt ||
+      oldestMessage?.updatedAt ||
+      oldestMessage?.deliveredAt;
+    if (!before) return;
 
     await get().getMessagesByUserId(selectedUser._id, {
-      before: oldestMessage.createdAt,
+      before,
       append: true,
       markRead: false,
     });
@@ -147,7 +152,13 @@ export const useChatStore = create((set, get) => ({
       set((state) => {
         const updatedChats = state.chats.map((chat) =>
           chat._id === selectedUser._id
-            ? { ...chat, lastMessageAt: res.data.createdAt }
+            ? {
+                ...chat,
+                lastMessageAt: res.data.createdAt,
+                lastMessageText: res.data.text || "",
+                lastMessageImage: res.data.image || "",
+                lastMessageSenderId: res.data.senderId,
+              }
             : chat
         );
         updatedChats.sort(
@@ -198,7 +209,13 @@ export const useChatStore = create((set, get) => ({
         set((state) => {
           const updatedChats = state.chats.map((chat) =>
             chat._id === newMessage.senderId
-              ? { ...chat, lastMessageAt: newMessage.createdAt }
+              ? {
+                  ...chat,
+                  lastMessageAt: newMessage.createdAt,
+                  lastMessageText: newMessage.text || "",
+                  lastMessageImage: newMessage.image || "",
+                  lastMessageSenderId: newMessage.senderId,
+                }
               : chat
           );
           updatedChats.sort(
@@ -219,6 +236,9 @@ export const useChatStore = create((set, get) => ({
                 ? {
                     ...chat,
                     lastMessageAt: newMessage.createdAt,
+                    lastMessageText: newMessage.text || "",
+                    lastMessageImage: newMessage.image || "",
+                    lastMessageSenderId: newMessage.senderId,
                     unreadCount: (chat.unreadCount || 0) + 1,
                   }
                 : chat

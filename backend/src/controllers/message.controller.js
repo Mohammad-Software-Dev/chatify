@@ -2,6 +2,7 @@ import cloudinary from "../lib/cloudinary.js";
 import { getReceiverSocketIds, io } from "../lib/socket.js";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
+import mongoose from "mongoose";
 
 export const getAllContacts = async (req, res) => {
   try {
@@ -32,14 +33,61 @@ export const getMessagesByUserId = async (req, res) => {
       ],
     };
     if (before && !Number.isNaN(before.valueOf())) {
-      query.createdAt = { $lt: before };
+      const beforeObjectId = mongoose.Types.ObjectId.createFromTime(
+        Math.floor(before.getTime() / 1000)
+      );
+      query.$or = [
+        {
+          $and: [
+            { senderId: myId, receiverId: userToChatId },
+            { createdAt: { $lt: before } },
+          ],
+        },
+        {
+          $and: [
+            { senderId: userToChatId, receiverId: myId },
+            { createdAt: { $lt: before } },
+          ],
+        },
+        {
+          $and: [
+            { senderId: myId, receiverId: userToChatId },
+            { createdAt: { $exists: false } },
+            { _id: { $lt: beforeObjectId } },
+          ],
+        },
+        {
+          $and: [
+            { senderId: userToChatId, receiverId: myId },
+            { createdAt: { $exists: false } },
+            { _id: { $lt: beforeObjectId } },
+          ],
+        },
+      ];
     }
 
     const messages = await Message.find(query)
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: -1, _id: -1 })
       .limit(limit)
       .lean();
-    messages.reverse();
+
+    const normalizedMessages = messages.map((msg) => {
+      const fallbackCreatedAt =
+        msg.createdAt ||
+        msg.sentAt ||
+        msg.updatedAt ||
+        msg.deliveredAt ||
+        msg.readAt ||
+        (msg._id?.getTimestamp ? msg._id.getTimestamp() : new Date());
+
+      return {
+        ...msg,
+        createdAt: msg.createdAt || fallbackCreatedAt,
+        status: msg.status || "sent",
+      };
+    });
+
+    normalizedMessages.reverse();
 
     if (markRead) {
       const now = new Date();
@@ -50,24 +98,25 @@ export const getMessagesByUserId = async (req, res) => {
       }).select("_id");
 
       if (messagesToMark.length > 0) {
+        const messageIds = messagesToMark.map((msg) => msg._id);
+
         await Message.updateMany(
-          { _id: { $in: messagesToMark.map((msg) => msg._id) } },
-          [
-            {
-              $set: {
-                status: "read",
-                readAt: now,
-                deliveredAt: { $ifNull: ["$deliveredAt", now] },
-              },
-            },
-          ]
+          { _id: { $in: messageIds }, status: { $ne: "read" } },
+          { $set: { status: "read", readAt: now } }
+        );
+        await Message.updateMany(
+          {
+            _id: { $in: messageIds },
+            $or: [{ deliveredAt: { $exists: false } }, { deliveredAt: null }],
+          },
+          { $set: { deliveredAt: now } }
         );
 
         const senderSocketIds = getReceiverSocketIds(userToChatId);
         if (senderSocketIds.length > 0) {
           senderSocketIds.forEach((socketId) => {
             io.to(socketId).emit("messageStatusUpdate", {
-              messageIds: messagesToMark.map((msg) => msg._id.toString()),
+              messageIds: messageIds.map((id) => id.toString()),
               status: "read",
               readAt: now.toISOString(),
               deliveredAt: now.toISOString(),
@@ -77,7 +126,7 @@ export const getMessagesByUserId = async (req, res) => {
       }
     }
 
-    res.status(200).json(messages);
+    res.status(200).json(normalizedMessages);
   } catch (error) {
     console.log("Error in getMessages controller: ", error.message);
     res.status(500).json({ error: "Internal server error" });
@@ -165,7 +214,23 @@ export const getChatPartners = async (req, res) => {
           ],
         },
       },
-      { $sort: { createdAt: -1 } },
+      {
+        $addFields: {
+          messageAt: {
+            $ifNull: [
+              "$createdAt",
+              {
+                $ifNull: [
+                  "$sentAt",
+                  { $ifNull: ["$updatedAt", "$deliveredAt"] },
+                ],
+              },
+            ],
+          },
+          status: { $ifNull: ["$status", "sent"] },
+        },
+      },
+      { $sort: { messageAt: -1, _id: -1 } },
       {
         $project: {
           partnerId: {
@@ -175,7 +240,7 @@ export const getChatPartners = async (req, res) => {
               "$senderId",
             ],
           },
-          createdAt: 1,
+          createdAt: "$messageAt",
           receiverId: 1,
           status: 1,
           text: 1,
@@ -258,24 +323,24 @@ export const markMessagesAsRead = async (req, res) => {
       return res.status(200).json({ updated: 0 });
     }
 
+    const messageIds = messagesToMark.map((msg) => msg._id);
     await Message.updateMany(
-      { _id: { $in: messagesToMark.map((msg) => msg._id) } },
-      [
-        {
-          $set: {
-            status: "read",
-            readAt: now,
-            deliveredAt: { $ifNull: ["$deliveredAt", now] },
-          },
-        },
-      ]
+      { _id: { $in: messageIds }, status: { $ne: "read" } },
+      { $set: { status: "read", readAt: now } }
+    );
+    await Message.updateMany(
+      {
+        _id: { $in: messageIds },
+        $or: [{ deliveredAt: { $exists: false } }, { deliveredAt: null }],
+      },
+      { $set: { deliveredAt: now } }
     );
 
     const senderSocketIds = getReceiverSocketIds(senderId);
     if (senderSocketIds.length > 0) {
       senderSocketIds.forEach((socketId) => {
         io.to(socketId).emit("messageStatusUpdate", {
-          messageIds: messagesToMark.map((msg) => msg._id.toString()),
+          messageIds: messageIds.map((id) => id.toString()),
           status: "read",
           readAt: now.toISOString(),
           deliveredAt: now.toISOString(),

@@ -22,6 +22,9 @@ function ChatContainer() {
   const messagesContainerRef = useRef(null);
   const isPrependingRef = useRef(false);
 
+  const getMessageTime = (msg) =>
+    msg?.createdAt || msg?.sentAt || msg?.updatedAt || msg?.deliveredAt || null;
+
   useEffect(() => {
     getMessagesByUserId(selectedUser._id);
   }, [selectedUser, getMessagesByUserId]);
@@ -99,10 +102,13 @@ function ChatContainer() {
                     {msg.text && <p className="mt-2">{msg.text}</p>}
                     <div className="text-xs mt-1 opacity-75 flex items-center gap-1">
                       <span>
-                        {new Date(msg.createdAt).toLocaleTimeString(undefined, {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {new Date(getMessageTime(msg) || Date.now()).toLocaleTimeString(
+                          undefined,
+                          {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }
+                        )}
                       </span>
                       {msg.senderId === authUser._id && (
                         <span
@@ -110,20 +116,22 @@ function ChatContainer() {
                           title={
                             status === "read"
                               ? `Read ${new Date(
-                                  msg.readAt || msg.createdAt
+                                  msg.readAt || getMessageTime(msg) || Date.now()
                                 ).toLocaleTimeString(undefined, {
                                   hour: "2-digit",
                                   minute: "2-digit",
                                 })}`
                               : status === "delivered"
                               ? `Delivered ${new Date(
-                                  msg.deliveredAt || msg.createdAt
+                                  msg.deliveredAt ||
+                                    getMessageTime(msg) ||
+                                    Date.now()
                                 ).toLocaleTimeString(undefined, {
                                   hour: "2-digit",
                                   minute: "2-digit",
                                 })}`
                               : `Sent ${new Date(
-                                  msg.sentAt || msg.createdAt
+                                  msg.sentAt || getMessageTime(msg) || Date.now()
                                 ).toLocaleTimeString(undefined, {
                                   hour: "2-digit",
                                   minute: "2-digit",
