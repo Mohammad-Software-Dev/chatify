@@ -14,6 +14,7 @@ export const useAuthStore = create((set, get) => ({
   socket: null,
   onlineUsers: [],
   lastSeenByUserId: {},
+  presenceByUserId: {},
 
   checkAuth: async () => {
     try {
@@ -101,16 +102,52 @@ export const useAuthStore = create((set, get) => ({
         const currentOnlineUsers = new Set(userIds);
         const now = new Date().toISOString();
         const lastSeenByUserId = { ...state.lastSeenByUserId };
+        const presenceByUserId = { ...state.presenceByUserId };
 
         previousOnlineUsers.forEach((userId) => {
           if (!currentOnlineUsers.has(userId)) {
             lastSeenByUserId[userId] = now;
+            presenceByUserId[userId] = {
+              ...(presenceByUserId[userId] || {}),
+              isOnline: false,
+              lastSeenAt: now,
+            };
           }
         });
 
-        return { onlineUsers: userIds, lastSeenByUserId };
+        userIds.forEach((userId) => {
+          presenceByUserId[userId] = {
+            ...(presenceByUserId[userId] || {}),
+            isOnline: true,
+          };
+        });
+
+        return { onlineUsers: userIds, lastSeenByUserId, presenceByUserId };
       });
     });
+
+    socket.on(
+      "presence:update",
+      ({ userId, isOnline, lastActiveAt, lastSeenAt }) => {
+      if (!userId) return;
+      set((state) => ({
+        presenceByUserId: {
+          ...state.presenceByUserId,
+          [userId]: {
+            ...(state.presenceByUserId[userId] || {}),
+            isOnline:
+              typeof isOnline === "boolean"
+                ? isOnline
+                : state.presenceByUserId[userId]?.isOnline,
+            lastActiveAt:
+              lastActiveAt || state.presenceByUserId[userId]?.lastActiveAt,
+            lastSeenAt:
+              lastSeenAt || state.presenceByUserId[userId]?.lastSeenAt,
+          },
+        },
+      }));
+    }
+    );
   },
 
   disconnectSocket: () => {

@@ -5,10 +5,19 @@ import { useAuthStore } from "../store/useAuthStore";
 
 function ChatHeader() {
   const { selectedUser, setSelectedUser, typingByUserId } = useChatStore();
-  const { onlineUsers, lastSeenByUserId } = useAuthStore();
+  const { onlineUsers, lastSeenByUserId, presenceByUserId } = useAuthStore();
   const isOnline = onlineUsers?.includes(selectedUser._id);
   const isTyping = typingByUserId[selectedUser._id];
-  const lastSeen = lastSeenByUserId[selectedUser._id];
+  const lastSeen =
+    presenceByUserId[selectedUser._id]?.lastSeenAt ||
+    lastSeenByUserId[selectedUser._id] ||
+    selectedUser.lastSeenAt;
+  const lastActiveAt =
+    presenceByUserId[selectedUser._id]?.lastActiveAt ||
+    selectedUser.lastActiveAt;
+  const isActiveNow = lastActiveAt
+    ? Date.now() - new Date(lastActiveAt).getTime() < 45000
+    : false;
 
   useEffect(() => {
     const handleEscKey = (event) => {
@@ -47,8 +56,8 @@ function ChatHeader() {
           >
             {isTyping
               ? "Typing..."
-              : isOnline
-              ? "Online"
+              : isActiveNow || isOnline
+              ? "Active now"
               : lastSeen
               ? `Last seen ${new Date(lastSeen).toLocaleTimeString(undefined, {
                   hour: "2-digit",

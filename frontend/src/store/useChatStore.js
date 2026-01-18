@@ -23,6 +23,30 @@ const savePendingQueue = (queue) => {
   localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
 };
 
+const getMessageSortKey = (msg) => {
+  const time =
+    msg?.createdAt ||
+    msg?.sentAt ||
+    msg?.updatedAt ||
+    msg?.deliveredAt ||
+    msg?.readAt;
+  const timestamp = time ? new Date(time).getTime() : 0;
+  return {
+    timestamp,
+    id: msg?._id || msg?.clientMessageId || "",
+  };
+};
+
+const sortMessages = (messages) =>
+  [...messages].sort((a, b) => {
+    const aKey = getMessageSortKey(a);
+    const bKey = getMessageSortKey(b);
+    if (aKey.timestamp !== bKey.timestamp) {
+      return aKey.timestamp - bKey.timestamp;
+    }
+    return String(aKey.id).localeCompare(String(bKey.id));
+  });
+
 export const useChatStore = create((set, get) => ({
   allContacts: [],
   chats: [],
@@ -105,7 +129,9 @@ export const useChatStore = create((set, get) => ({
         `/messages/${userId}${params.toString() ? `?${params}` : ""}`
       );
       set((state) => ({
-        messages: append ? [...res.data, ...state.messages] : res.data,
+        messages: sortMessages(
+          append ? [...res.data, ...state.messages] : res.data
+        ),
         hasMoreMessages: res.data.length === MESSAGE_PAGE_SIZE,
       }));
     } catch (error) {
@@ -146,21 +172,30 @@ export const useChatStore = create((set, get) => ({
       typeof navigator !== "undefined" ? !navigator.onLine : false;
 
     const tempId = `temp-${Date.now()}`;
+    const images = Array.isArray(messageData.images)
+      ? messageData.images
+      : messageData.image
+      ? [messageData.image]
+      : [];
 
     const optimisticMessage = {
       _id: tempId,
       senderId: authUser._id,
       receiverId: selectedUser._id,
       text: messageData.text,
-      image: messageData.image,
+      image: images[0],
+      images,
       createdAt: new Date().toISOString(),
       sentAt: new Date().toISOString(),
       status: "sent",
       clientMessageId: tempId,
+      uploadProgress: images.length > 0 ? 0 : null,
       isOptimistic: true, // flag to identify optimistic messages (optional)
     };
     // immidetaly update the ui by adding the message
-    set((state) => ({ messages: [...state.messages, optimisticMessage] }));
+    set((state) => ({
+      messages: sortMessages([...state.messages, optimisticMessage]),
+    }));
 
     if (isOffline) {
       get().enqueuePendingMessage({
@@ -177,11 +212,24 @@ export const useChatStore = create((set, get) => ({
     try {
       const res = await axiosInstance.post(
         `/messages/send/${selectedUser._id}`,
-        { ...messageData, clientMessageId: tempId }
+        { ...messageData, clientMessageId: tempId },
+        {
+          onUploadProgress: (event) => {
+            if (!event.total) return;
+            const percent = Math.round((event.loaded / event.total) * 100);
+            set((state) => ({
+              messages: state.messages.map((msg) =>
+                msg._id === tempId
+                  ? { ...msg, uploadProgress: percent }
+                  : msg
+              ),
+            }));
+          },
+        }
       );
       set((state) => ({
-        messages: state.messages.map((msg) =>
-          msg._id === tempId ? res.data : msg
+        messages: sortMessages(
+          state.messages.map((msg) => (msg._id === tempId ? res.data : msg))
         ),
       }));
       set((state) => {
@@ -234,12 +282,27 @@ export const useChatStore = create((set, get) => ({
     try {
       const res = await axiosInstance.post(
         `/messages/send/${readyEntry.toUserId}`,
-        readyEntry.payload
+        readyEntry.payload,
+        {
+          onUploadProgress: (event) => {
+            if (!event.total) return;
+            const percent = Math.round((event.loaded / event.total) * 100);
+            set((state) => ({
+              messages: state.messages.map((msg) =>
+                msg._id === readyEntry.id
+                  ? { ...msg, uploadProgress: percent }
+                  : msg
+              ),
+            }));
+          },
+        }
       );
 
       set((state) => ({
-        messages: state.messages.map((msg) =>
-          msg._id === readyEntry.id ? res.data : msg
+        messages: sortMessages(
+          state.messages.map((msg) =>
+            msg._id === readyEntry.id ? res.data : msg
+          )
         ),
       }));
 
@@ -325,7 +388,7 @@ export const useChatStore = create((set, get) => ({
 
       if (isFromSelectedUser) {
         const currentMessages = get().messages;
-        set({ messages: [...currentMessages, newMessage] });
+        set({ messages: sortMessages([...currentMessages, newMessage]) });
         get().markMessagesAsRead(selectedUserId);
         set((state) => {
           const updatedChats = state.chats.map((chat) =>

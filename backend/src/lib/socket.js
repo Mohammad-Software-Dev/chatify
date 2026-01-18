@@ -3,6 +3,7 @@ import http from "http";
 import express from "express";
 import { ENV } from "./env.js";
 import { socketAuthMiddleware } from "../middleware/socket.auth.middleware.js";
+import User from "../models/User.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -29,14 +30,37 @@ io.on("connection", (socket) => {
   console.log("A user connected", socket.user.fullName);
 
   const userId = socket.userId;
+  const now = new Date();
   const existingSockets = userSocketMap.get(userId) || new Set();
   existingSockets.add(socket.id);
   userSocketMap.set(userId, existingSockets);
+
+  User.findByIdAndUpdate(userId, { lastActiveAt: now }).catch((error) => {
+    console.log("Error updating lastActiveAt:", error.message);
+  });
+  io.emit("presence:update", {
+    userId,
+    isOnline: true,
+    lastActiveAt: now.toISOString(),
+  });
 
   // io.emit() is used to send events to all connected clients
   io.emit("getOnlineUsers", Array.from(userSocketMap.keys()));
 
   // with socket.on we listen for events from clients
+  socket.on("presence:ping", () => {
+    const pingTime = new Date();
+    User.findByIdAndUpdate(userId, { lastActiveAt: pingTime }).catch(
+      (error) => {
+        console.log("Error updating lastActiveAt:", error.message);
+      }
+    );
+    io.emit("presence:update", {
+      userId,
+      isOnline: true,
+      lastActiveAt: pingTime.toISOString(),
+    });
+  });
   socket.on("typing:start", ({ toUserId }) => {
     if (!toUserId) return;
     const receiverSocketIds = getReceiverSocketIds(toUserId);
@@ -55,6 +79,7 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("A user disconnected", socket.user.fullName);
+    const disconnectTime = new Date();
     const sockets = userSocketMap.get(userId);
     if (sockets) {
       sockets.delete(socket.id);
@@ -63,6 +88,16 @@ io.on("connection", (socket) => {
       }
     }
     io.emit("getOnlineUsers", Array.from(userSocketMap.keys()));
+    User.findByIdAndUpdate(userId, { lastSeenAt: disconnectTime }).catch(
+      (error) => {
+        console.log("Error updating lastSeenAt:", error.message);
+      }
+    );
+    io.emit("presence:update", {
+      userId,
+      isOnline: false,
+      lastSeenAt: disconnectTime.toISOString(),
+    });
   });
 });
 

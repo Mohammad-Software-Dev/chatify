@@ -9,9 +9,11 @@ A real-time chat app with a React frontend and an Express + Socket.IO backend.
 - Read receipt timestamps per message (tap/click to view)
 - Typing indicators (header + typing bubble)
 - Online users presence
+- Active now + last seen presence (server persisted)
 - Chat list with last message preview and unread counts
 - Pagination: load latest 20 messages and fetch older on scroll
-- Image uploads via Cloudinary
+- Image uploads via Cloudinary (multi-attach, drag-drop, previews, compression)
+- Upload progress indicators per image
 - Offline queue with retries and exponential backoff
 - Optimistic UI with server reconciliation
 - Profile picture updates

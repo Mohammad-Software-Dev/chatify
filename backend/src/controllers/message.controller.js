@@ -72,7 +72,7 @@ export const getMessagesByUserId = async (req, res) => {
 
     const messages = await Message.find(query)
       .select(
-        "senderId receiverId text image createdAt status sentAt deliveredAt readAt updatedAt"
+        "senderId receiverId text image images createdAt status sentAt deliveredAt readAt updatedAt"
       )
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit)
@@ -148,11 +148,17 @@ export const getMessagesByUserId = async (req, res) => {
 
 export const sendMessage = async (req, res) => {
   try {
-    const { text, image, clientMessageId } = req.body;
+    const { text, image, images, clientMessageId } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
 
-    if (!text && !image) {
+    const imagesArray = Array.isArray(images)
+      ? images.filter(Boolean)
+      : image
+      ? [image]
+      : [];
+
+    if (!text && imagesArray.length === 0) {
       return res.status(400).json({ message: "Text or image is required." });
     }
     if (senderId.equals(receiverId)) {
@@ -166,10 +172,14 @@ export const sendMessage = async (req, res) => {
     }
 
     let imageUrl;
-    if (image) {
-      // upload base64 image to cloudinary
-      const uploadResponse = await cloudinary.uploader.upload(image);
-      imageUrl = uploadResponse.secure_url;
+    let imageUrls = [];
+    if (imagesArray.length > 0) {
+      // upload base64 images to cloudinary
+      const uploads = await Promise.all(
+        imagesArray.map((img) => cloudinary.uploader.upload(img))
+      );
+      imageUrls = uploads.map((upload) => upload.secure_url);
+      imageUrl = imageUrls[0];
     }
 
     const receiverSocketIds = getReceiverSocketIds(receiverId);
@@ -181,6 +191,7 @@ export const sendMessage = async (req, res) => {
       receiverId,
       text,
       image: imageUrl,
+      images: imageUrls,
       status: isDelivered ? "delivered" : "sent",
       deliveredAt,
       sentAt: new Date(),
@@ -201,6 +212,7 @@ export const sendMessage = async (req, res) => {
           lastMessageAt: newMessage.createdAt,
           lastMessageText: newMessage.text || "",
           lastMessageImage: newMessage.image || "",
+          lastMessageImages: newMessage.images || [],
           lastMessageSenderId: senderId,
           [`unreadCounts.${senderId.toString()}`]: 0,
         },
@@ -333,6 +345,9 @@ export const getChatPartners = async (req, res) => {
                   lastMessageAt: partner.lastMessageAt,
                   lastMessageText: partner.lastMessageText || "",
                   lastMessageImage: partner.lastMessageImage || "",
+                  lastMessageImages: partner.lastMessageImage
+                    ? [partner.lastMessageImage]
+                    : [],
                   lastMessageSenderId: partner.lastMessageSenderId,
                   [`unreadCounts.${loggedInUserId.toString()}`]:
                     partner.unreadCount || 0,
@@ -388,6 +403,7 @@ export const getChatPartners = async (req, res) => {
           unreadCount,
           lastMessageText: conversation.lastMessageText || "",
           lastMessageImage: conversation.lastMessageImage || "",
+          lastMessageImages: conversation.lastMessageImages || [],
           lastMessageSenderId:
             conversation.lastMessageSenderId?.toString() || "",
         };

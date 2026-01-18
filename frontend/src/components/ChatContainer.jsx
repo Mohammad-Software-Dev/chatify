@@ -177,10 +177,14 @@ function ChatContainer() {
               )
               .map((msg) => {
                 const status = msg.status || "sent";
+                const showUploadProgress =
+                  msg.isOptimistic &&
+                  msg.uploadProgress !== null &&
+                  msg.uploadProgress < 100;
                 return (
-                <div
-                  key={msg._id}
-                  className={`chat ${
+                  <div
+                    key={msg._id}
+                    className={`chat ${
                     msg.senderId === authUser._id ? "chat-end" : "chat-start"
                   }`}
                 >
@@ -195,14 +199,64 @@ function ChatContainer() {
                   onTouchEnd={handleTouchEnd}
                   onTouchCancel={handleTouchEnd}
                 >
-                    {msg.image && (
-                      <img
-                        src={msg.image}
-                        alt="Shared"
-                        className="rounded-lg h-48 object-cover"
-                      />
-                    )}
+                    {(() => {
+                      const images =
+                        msg.images?.length > 0
+                          ? msg.images
+                          : msg.image
+                          ? [msg.image]
+                          : [];
+                      if (images.length === 0) return null;
+                      if (images.length === 1) {
+                        return (
+                          <div className="relative">
+                            <img
+                              src={images[0]}
+                              alt="Shared"
+                              className="rounded-lg h-48 object-cover"
+                            />
+                            {showUploadProgress && (
+                              <div className="absolute inset-0 rounded-lg bg-slate-900/40 flex items-center justify-center">
+                                <span className="text-xs text-slate-100 font-medium">
+                                  {msg.uploadProgress}%
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="grid grid-cols-2 gap-2">
+                          {images.map((img) => (
+                            <div key={img} className="relative">
+                              <img
+                                src={img}
+                                alt="Shared"
+                                className="rounded-lg h-32 w-full object-cover"
+                              />
+                              {showUploadProgress && (
+                                <div className="absolute inset-0 rounded-lg bg-slate-900/40 flex items-center justify-center">
+                                  <span className="text-xs text-slate-100 font-medium">
+                                    {msg.uploadProgress}%
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     {msg.text && <p className="mt-2">{msg.text}</p>}
+                    {msg.isOptimistic &&
+                      msg.uploadProgress !== null &&
+                      msg.uploadProgress < 100 && (
+                        <div className="mt-2 h-1.5 rounded-full bg-slate-700/60 overflow-hidden">
+                          <div
+                            className="h-full bg-cyan-300"
+                            style={{ width: `${msg.uploadProgress}%` }}
+                          />
+                        </div>
+                      )}
                     <div className="text-xs mt-1 opacity-75 flex items-center gap-1">
                       <span>
                         {new Date(getMessageTime(msg) || Date.now()).toLocaleTimeString(

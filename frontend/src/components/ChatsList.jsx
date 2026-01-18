@@ -58,6 +58,8 @@ function ChatsList() {
                 {chat.lastMessageSenderId === authUser?._id ? "You: " : ""}
                 {chat.lastMessageText
                   ? chat.lastMessageText
+                  : chat.lastMessageImages?.length > 1
+                  ? "Photos"
                   : chat.lastMessageImage
                   ? "Image"
                   : "No messages yet"}

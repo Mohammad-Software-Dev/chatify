@@ -25,6 +25,10 @@ const conversationSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    lastMessageImages: {
+      type: [String],
+      default: [],
+    },
     lastMessageSenderId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

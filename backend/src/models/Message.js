@@ -20,6 +20,10 @@ const messageSchema = new mongoose.Schema(
     image: {
       type: String,
     },
+    images: {
+      type: [String],
+      default: [],
+    },
     status: {
       type: String,
       enum: ["sent", "delivered", "read"],

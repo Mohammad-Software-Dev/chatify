@@ -29,6 +29,15 @@ function ChatPage() {
     return () => window.removeEventListener("online", handleOnline);
   }, [processPendingQueue]);
 
+  useEffect(() => {
+    if (!socket) return;
+    const intervalId = setInterval(() => {
+      socket.emit("presence:ping");
+    }, 20000);
+
+    return () => clearInterval(intervalId);
+  }, [socket]);
+
   return (
     <div className="relative w-full max-w-6xl h-200">
       <BorderAnimatedContainer>
