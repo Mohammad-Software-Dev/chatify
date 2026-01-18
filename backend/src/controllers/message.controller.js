@@ -23,6 +23,7 @@ export const getMessagesByUserId = async (req, res) => {
     const { id: userToChatId } = req.params;
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
     const before = req.query.before ? new Date(req.query.before) : null;
+    const markRead = req.query.markRead !== "false";
 
     const query = {
       $or: [
@@ -39,6 +40,42 @@ export const getMessagesByUserId = async (req, res) => {
       .limit(limit)
       .lean();
     messages.reverse();
+
+    if (markRead) {
+      const now = new Date();
+      const messagesToMark = await Message.find({
+        senderId: userToChatId,
+        receiverId: myId,
+        status: { $ne: "read" },
+      }).select("_id");
+
+      if (messagesToMark.length > 0) {
+        await Message.updateMany(
+          { _id: { $in: messagesToMark.map((msg) => msg._id) } },
+          [
+            {
+              $set: {
+                status: "read",
+                readAt: now,
+                deliveredAt: { $ifNull: ["$deliveredAt", now] },
+              },
+            },
+          ]
+        );
+
+        const senderSocketIds = getReceiverSocketIds(userToChatId);
+        if (senderSocketIds.length > 0) {
+          senderSocketIds.forEach((socketId) => {
+            io.to(socketId).emit("messageStatusUpdate", {
+              messageIds: messagesToMark.map((msg) => msg._id.toString()),
+              status: "read",
+              readAt: now.toISOString(),
+              deliveredAt: now.toISOString(),
+            });
+          });
+        }
+      }
+    }
 
     res.status(200).json(messages);
   } catch (error) {
@@ -73,20 +110,39 @@ export const sendMessage = async (req, res) => {
       imageUrl = uploadResponse.secure_url;
     }
 
+    const receiverSocketIds = getReceiverSocketIds(receiverId);
+    const isDelivered = receiverSocketIds.length > 0;
+    const deliveredAt = isDelivered ? new Date() : undefined;
+
     const newMessage = new Message({
       senderId,
       receiverId,
       text,
       image: imageUrl,
+      status: isDelivered ? "delivered" : "sent",
+      deliveredAt,
+      sentAt: new Date(),
     });
 
     await newMessage.save();
 
-    const receiverSocketIds = getReceiverSocketIds(receiverId);
     if (receiverSocketIds.length > 0) {
       receiverSocketIds.forEach((socketId) => {
         io.to(socketId).emit("newMessage", newMessage);
       });
+    }
+
+    if (isDelivered) {
+      const senderSocketIds = getReceiverSocketIds(senderId);
+      if (senderSocketIds.length > 0) {
+        senderSocketIds.forEach((socketId) => {
+          io.to(socketId).emit("messageStatusUpdate", {
+            messageIds: [newMessage._id.toString()],
+            status: "delivered",
+            deliveredAt: deliveredAt.toISOString(),
+          });
+        });
+      }
     }
 
     res.status(201).json(newMessage);
@@ -119,12 +175,28 @@ export const getChatPartners = async (req, res) => {
             ],
           },
           createdAt: 1,
+          receiverId: 1,
+          status: 1,
         },
       },
       {
         $group: {
           _id: "$partnerId",
           lastMessageAt: { $max: "$createdAt" },
+          unreadCount: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ["$receiverId", loggedInUserId] },
+                    { $ne: ["$status", "read"] },
+                  ],
+                },
+                1,
+                0,
+              ],
+            },
+          },
         },
       },
       { $sort: { lastMessageAt: -1 } },
@@ -145,13 +217,65 @@ export const getChatPartners = async (req, res) => {
       .map((partner) => {
         const user = chatPartnerMap.get(partner._id.toString());
         if (!user) return null;
-        return { ...user, lastMessageAt: partner.lastMessageAt };
+        return {
+          ...user,
+          lastMessageAt: partner.lastMessageAt,
+          unreadCount: partner.unreadCount || 0,
+        };
       })
       .filter(Boolean);
 
     res.status(200).json(response);
   } catch (error) {
     console.error("Error in getChatPartners: ", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const markMessagesAsRead = async (req, res) => {
+  try {
+    const myId = req.user._id;
+    const { id: senderId } = req.params;
+    const now = new Date();
+
+    const messagesToMark = await Message.find({
+      senderId,
+      receiverId: myId,
+      status: { $ne: "read" },
+    }).select("_id");
+
+    if (messagesToMark.length === 0) {
+      return res.status(200).json({ updated: 0 });
+    }
+
+    await Message.updateMany(
+      { _id: { $in: messagesToMark.map((msg) => msg._id) } },
+      [
+        {
+          $set: {
+            status: "read",
+            readAt: now,
+            deliveredAt: { $ifNull: ["$deliveredAt", now] },
+          },
+        },
+      ]
+    );
+
+    const senderSocketIds = getReceiverSocketIds(senderId);
+    if (senderSocketIds.length > 0) {
+      senderSocketIds.forEach((socketId) => {
+        io.to(socketId).emit("messageStatusUpdate", {
+          messageIds: messagesToMark.map((msg) => msg._id.toString()),
+          status: "read",
+          readAt: now.toISOString(),
+          deliveredAt: now.toISOString(),
+        });
+      });
+    }
+
+    res.status(200).json({ updated: messagesToMark.length });
+  } catch (error) {
+    console.error("Error in markMessagesAsRead: ", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };

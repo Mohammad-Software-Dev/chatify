@@ -3,6 +3,7 @@ import {
   getAllContacts,
   getChatPartners,
   getMessagesByUserId,
+  markMessagesAsRead,
   sendMessage,
 } from "../controllers/message.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
@@ -17,6 +18,7 @@ router.use(arcjetProtection, protectRoute);
 router.get("/contacts", getAllContacts);
 router.get("/chats", getChatPartners);
 router.get("/:id", getMessagesByUserId);
+router.put("/read/:id", markMessagesAsRead);
 router.post("/send/:id", sendMessage);
 
 export default router;

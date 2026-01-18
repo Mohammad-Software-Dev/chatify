@@ -7,9 +7,19 @@ import ChatsList from "../components/ChatsList";
 import ContactList from "../components/ContactList";
 import ChatContainer from "../components/ChatContainer";
 import NoConversationPlaceholder from "../components/NoConversationPlaceholder";
+import { useEffect } from "react";
+import { useAuthStore } from "../store/useAuthStore";
 
 function ChatPage() {
-  const { activeTab, selectedUser } = useChatStore();
+  const { activeTab, selectedUser, subscribeToMessages, unsubscribeFromMessages } =
+    useChatStore();
+  const { socket } = useAuthStore();
+
+  useEffect(() => {
+    if (!socket) return;
+    subscribeToMessages();
+    return () => unsubscribeFromMessages();
+  }, [socket, subscribeToMessages, unsubscribeFromMessages]);
 
   return (
     <div className="relative w-full max-w-6xl h-200">

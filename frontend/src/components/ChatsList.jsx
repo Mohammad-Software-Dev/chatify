@@ -24,7 +24,7 @@ function ChatsList() {
           className="bg-cyan-500/10 p-4 rounded-lg cursor-pointer hover:bg-cyan-500/20 transition-colors"
           onClick={() => setSelectedUser(chat)}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 justify-between">
             <div
               className={`avatar ${
                 onlineUsers?.includes(chat._id) ? "online" : "offline"
@@ -37,9 +37,16 @@ function ChatsList() {
                 />
               </div>
             </div>
-            <h4 className="text-slate-200 font-medium truncate">
-              {chat.fullName}
-            </h4>
+            <div className="flex-1 min-w-0">
+              <h4 className="text-slate-200 font-medium truncate">
+                {chat.fullName}
+              </h4>
+            </div>
+            {chat.unreadCount > 0 && (
+              <span className="text-xs font-semibold bg-cyan-500 text-slate-900 px-2 py-0.5 rounded-full">
+                {chat.unreadCount}
+              </span>
+            )}
           </div>
         </div>
       ))}
