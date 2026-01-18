@@ -165,6 +165,7 @@ export const getChatPartners = async (req, res) => {
           ],
         },
       },
+      { $sort: { createdAt: -1 } },
       {
         $project: {
           partnerId: {
@@ -177,12 +178,18 @@ export const getChatPartners = async (req, res) => {
           createdAt: 1,
           receiverId: 1,
           status: 1,
+          text: 1,
+          image: 1,
+          senderId: 1,
         },
       },
       {
         $group: {
           _id: "$partnerId",
-          lastMessageAt: { $max: "$createdAt" },
+          lastMessageAt: { $first: "$createdAt" },
+          lastMessageText: { $first: "$text" },
+          lastMessageImage: { $first: "$image" },
+          lastMessageSenderId: { $first: "$senderId" },
           unreadCount: {
             $sum: {
               $cond: [
@@ -221,6 +228,9 @@ export const getChatPartners = async (req, res) => {
           ...user,
           lastMessageAt: partner.lastMessageAt,
           unreadCount: partner.unreadCount || 0,
+          lastMessageText: partner.lastMessageText || "",
+          lastMessageImage: partner.lastMessageImage || "",
+          lastMessageSenderId: partner.lastMessageSenderId?.toString() || "",
         };
       })
       .filter(Boolean);

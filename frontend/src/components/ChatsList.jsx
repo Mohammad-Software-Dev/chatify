@@ -7,7 +7,7 @@ import { useAuthStore } from "../store/useAuthStore";
 function ChatsList() {
   const { getMyChatPartners, chats, isUsersLoading, setSelectedUser } =
     useChatStore();
-  const { onlineUsers } = useAuthStore();
+  const { onlineUsers, authUser } = useAuthStore();
 
   useEffect(() => {
     getMyChatPartners();
@@ -38,9 +38,30 @@ function ChatsList() {
               </div>
             </div>
             <div className="flex-1 min-w-0">
-              <h4 className="text-slate-200 font-medium truncate">
-                {chat.fullName}
-              </h4>
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="text-slate-200 font-medium truncate">
+                  {chat.fullName}
+                </h4>
+                {chat.lastMessageAt && (
+                  <span className="text-xs text-slate-400 shrink-0">
+                    {new Date(chat.lastMessageAt).toLocaleTimeString(
+                      undefined,
+                      {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }
+                    )}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 truncate">
+                {chat.lastMessageSenderId === authUser?._id ? "You: " : ""}
+                {chat.lastMessageText
+                  ? chat.lastMessageText
+                  : chat.lastMessageImage
+                  ? "Image"
+                  : "No messages yet"}
+              </p>
             </div>
             {chat.unreadCount > 0 && (
               <span className="text-xs font-semibold bg-cyan-500 text-slate-900 px-2 py-0.5 rounded-full">

@@ -19,27 +19,53 @@ function ChatContainer() {
   } = useChatStore();
   const { authUser } = useAuthStore();
   const messageEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const isPrependingRef = useRef(false);
 
   useEffect(() => {
     getMessagesByUserId(selectedUser._id);
   }, [selectedUser, getMessagesByUserId]);
 
   useEffect(() => {
+    if (isPrependingRef.current) return;
     if (messageEndRef.current) {
       messageEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
 
+  const handleLoadOlderMessages = async () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const prevScrollHeight = container.scrollHeight;
+    const prevScrollTop = container.scrollTop;
+    isPrependingRef.current = true;
+
+    await loadOlderMessages();
+
+    requestAnimationFrame(() => {
+      const updatedContainer = messagesContainerRef.current;
+      if (!updatedContainer) return;
+      const newScrollHeight = updatedContainer.scrollHeight;
+      updatedContainer.scrollTop =
+        newScrollHeight - prevScrollHeight + prevScrollTop;
+      isPrependingRef.current = false;
+    });
+  };
+
   return (
     <>
       <ChatHeader />
-      <div className="flex-1 px-6 overflow-y-auto py-8">
+      <div
+        ref={messagesContainerRef}
+        className="flex-1 px-6 overflow-y-auto py-8"
+      >
         {messages.length > 0 && !isMessagesLoading ? (
           <div className="max-w-3xl mx-auto space-y-6">
             {hasMoreMessages && (
               <div className="flex justify-center">
                 <button
-                  onClick={loadOlderMessages}
+                  onClick={handleLoadOlderMessages}
                   disabled={isLoadingMoreMessages}
                   className="text-slate-300 text-sm px-3 py-1 rounded-full bg-slate-800/60 hover:bg-slate-700/60 transition-colors disabled:opacity-50"
                 >
