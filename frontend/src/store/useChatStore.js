@@ -3,7 +3,25 @@ import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
 import { useAuthStore } from "./useAuthStore";
 
-const MESSAGE_PAGE_SIZE = 50;
+const MESSAGE_PAGE_SIZE = 20;
+const QUEUE_STORAGE_KEY = "chatify.pendingQueue";
+const MAX_RETRY_DELAY_MS = 30000;
+const BASE_RETRY_DELAY_MS = 1000;
+
+const loadPendingQueue = () => {
+  try {
+    const raw = localStorage.getItem(QUEUE_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const savePendingQueue = (queue) => {
+  localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
+};
 
 export const useChatStore = create((set, get) => ({
   allContacts: [],
@@ -16,6 +34,8 @@ export const useChatStore = create((set, get) => ({
   isLoadingMoreMessages: false,
   hasMoreMessages: true,
   unreadByUserId: {},
+  typingByUserId: {},
+  pendingQueue: loadPendingQueue(),
   isSoundEnabled: JSON.parse(localStorage.getItem("isSoundEnabled")) === true,
 
   toggleSound: () => {
@@ -122,6 +142,8 @@ export const useChatStore = create((set, get) => ({
   sendMessage: async (messageData) => {
     const { selectedUser } = get();
     const { authUser } = useAuthStore.getState();
+    const isOffline =
+      typeof navigator !== "undefined" ? !navigator.onLine : false;
 
     const tempId = `temp-${Date.now()}`;
 
@@ -134,15 +156,28 @@ export const useChatStore = create((set, get) => ({
       createdAt: new Date().toISOString(),
       sentAt: new Date().toISOString(),
       status: "sent",
+      clientMessageId: tempId,
       isOptimistic: true, // flag to identify optimistic messages (optional)
     };
     // immidetaly update the ui by adding the message
     set((state) => ({ messages: [...state.messages, optimisticMessage] }));
 
+    if (isOffline) {
+      get().enqueuePendingMessage({
+        id: tempId,
+        toUserId: selectedUser._id,
+        payload: { ...messageData, clientMessageId: tempId },
+        attempt: 0,
+        nextRetryAt: Date.now(),
+      });
+      toast.error("You are offline. Message queued.");
+      return;
+    }
+
     try {
       const res = await axiosInstance.post(
         `/messages/send/${selectedUser._id}`,
-        messageData
+        { ...messageData, clientMessageId: tempId }
       );
       set((state) => ({
         messages: state.messages.map((msg) =>
@@ -167,11 +202,95 @@ export const useChatStore = create((set, get) => ({
         return { chats: updatedChats };
       });
     } catch (error) {
-      // remove optimistic message on failure
+      get().enqueuePendingMessage({
+        id: tempId,
+        toUserId: selectedUser._id,
+        payload: { ...messageData, clientMessageId: tempId },
+        attempt: 0,
+        nextRetryAt: Date.now(),
+      });
+      toast.error(error.response?.data?.message || "Message queued");
+    }
+  },
+
+  enqueuePendingMessage: (entry) => {
+    set((state) => {
+      const queue = [...state.pendingQueue, entry];
+      savePendingQueue(queue);
+      return { pendingQueue: queue };
+    });
+    get().processPendingQueue();
+  },
+
+  processPendingQueue: async () => {
+    const { pendingQueue } = get();
+    if (pendingQueue.length === 0) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+
+    const now = Date.now();
+    const readyEntry = pendingQueue.find((item) => item.nextRetryAt <= now);
+    if (!readyEntry) return;
+
+    try {
+      const res = await axiosInstance.post(
+        `/messages/send/${readyEntry.toUserId}`,
+        readyEntry.payload
+      );
+
       set((state) => ({
-        messages: state.messages.filter((msg) => msg._id !== tempId),
+        messages: state.messages.map((msg) =>
+          msg._id === readyEntry.id ? res.data : msg
+        ),
       }));
-      toast.error(error.response?.data?.message || "Something went wrong");
+
+      set((state) => {
+        const updatedChats = state.chats.map((chat) =>
+          chat._id === readyEntry.toUserId
+            ? {
+                ...chat,
+                lastMessageAt: res.data.createdAt,
+                lastMessageText: res.data.text || "",
+                lastMessageImage: res.data.image || "",
+                lastMessageSenderId: res.data.senderId,
+              }
+            : chat
+        );
+        updatedChats.sort(
+          (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
+        );
+        return { chats: updatedChats };
+      });
+
+      set((state) => {
+        const queue = state.pendingQueue.filter(
+          (item) => item.id !== readyEntry.id
+        );
+        savePendingQueue(queue);
+        return { pendingQueue: queue };
+      });
+    } catch (error) {
+      const nextAttempt = readyEntry.attempt + 1;
+      const delay = Math.min(
+        BASE_RETRY_DELAY_MS * 2 ** nextAttempt,
+        MAX_RETRY_DELAY_MS
+      );
+      const updatedEntry = {
+        ...readyEntry,
+        attempt: nextAttempt,
+        nextRetryAt: Date.now() + delay,
+      };
+
+      set((state) => {
+        const queue = state.pendingQueue.map((item) =>
+          item.id === updatedEntry.id ? updatedEntry : item
+        );
+        savePendingQueue(queue);
+        return { pendingQueue: queue };
+      });
+    } finally {
+      setTimeout(() => {
+        get().processPendingQueue();
+      }, 500);
     }
   },
 
@@ -196,6 +315,8 @@ export const useChatStore = create((set, get) => ({
 
     socket.off("newMessage");
     socket.off("messageStatusUpdate");
+    socket.off("typing:start");
+    socket.off("typing:stop");
 
     socket.on("newMessage", (newMessage) => {
       const selectedUserId = get().selectedUser?._id;
@@ -285,11 +406,44 @@ export const useChatStore = create((set, get) => ({
         ),
       }));
     });
+
+    socket.on("typing:start", ({ fromUserId }) => {
+      if (!fromUserId) return;
+      set((state) => ({
+        typingByUserId: { ...state.typingByUserId, [fromUserId]: true },
+      }));
+      setTimeout(() => {
+        set((state) => ({
+          typingByUserId: { ...state.typingByUserId, [fromUserId]: false },
+        }));
+      }, 3000);
+    });
+
+    socket.on("typing:stop", ({ fromUserId }) => {
+      if (!fromUserId) return;
+      set((state) => ({
+        typingByUserId: { ...state.typingByUserId, [fromUserId]: false },
+      }));
+    });
   },
 
   unsubscribeFromMessages: () => {
     const socket = useAuthStore.getState().socket;
     socket.off("newMessage");
     socket.off("messageStatusUpdate");
+    socket.off("typing:start");
+    socket.off("typing:stop");
+  },
+
+  emitTypingStart: (toUserId) => {
+    const socket = useAuthStore.getState().socket;
+    if (!socket || !toUserId) return;
+    socket.emit("typing:start", { toUserId });
+  },
+
+  emitTypingStop: (toUserId) => {
+    const socket = useAuthStore.getState().socket;
+    if (!socket || !toUserId) return;
+    socket.emit("typing:stop", { toUserId });
   },
 }));

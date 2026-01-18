@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useKeyboardSound from "../hooks/useKeyboardSound";
 import { useChatStore } from "../store/useChatStore";
 import toast from "react-hot-toast";
@@ -11,7 +11,22 @@ function MessageInput() {
 
   const fileInputRef = useRef(null);
 
-  const { sendMessage, isSoundEnabled } = useChatStore();
+  const { sendMessage, isSoundEnabled, emitTypingStart, emitTypingStop } =
+    useChatStore();
+  const { selectedUser } = useChatStore();
+  const typingStopTimerRef = useRef(null);
+  const lastTypingEmitRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      if (typingStopTimerRef.current) {
+        clearTimeout(typingStopTimerRef.current);
+      }
+      if (selectedUser?._id) {
+        emitTypingStop(selectedUser._id);
+      }
+    };
+  }, [emitTypingStop, selectedUser?._id]);
 
   const handleSendMessage = (e) => {
     e.preventDefault();
@@ -22,6 +37,9 @@ function MessageInput() {
       text: text.trim(),
       image: imagePreview,
     });
+    if (selectedUser?._id) {
+      emitTypingStop(selectedUser._id);
+    }
     setText("");
     setImagePreview("");
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -75,6 +93,20 @@ function MessageInput() {
           onChange={(e) => {
             setText(e.target.value);
             isSoundEnabled && playRandomKeyStrokeSound();
+            if (!selectedUser?._id) return;
+
+            const now = Date.now();
+            if (now - lastTypingEmitRef.current > 1200) {
+              emitTypingStart(selectedUser._id);
+              lastTypingEmitRef.current = now;
+            }
+
+            if (typingStopTimerRef.current) {
+              clearTimeout(typingStopTimerRef.current);
+            }
+            typingStopTimerRef.current = setTimeout(() => {
+              emitTypingStop(selectedUser._id);
+            }, 2000);
           }}
           className="flex-1 bg-slate-800/50 border border-slate-700/50 rounded-lg py-2 px-4"
           placeholder="Type your message..."

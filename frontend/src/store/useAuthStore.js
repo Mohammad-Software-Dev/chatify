@@ -13,6 +13,7 @@ export const useAuthStore = create((set, get) => ({
   isLoggingIn: false,
   socket: null,
   onlineUsers: [],
+  lastSeenByUserId: {},
 
   checkAuth: async () => {
     try {
@@ -95,7 +96,20 @@ export const useAuthStore = create((set, get) => ({
 
     // listen for online users event
     socket.on("getOnlineUsers", (userIds) => {
-      set({ onlineUsers: userIds });
+      set((state) => {
+        const previousOnlineUsers = new Set(state.onlineUsers);
+        const currentOnlineUsers = new Set(userIds);
+        const now = new Date().toISOString();
+        const lastSeenByUserId = { ...state.lastSeenByUserId };
+
+        previousOnlineUsers.forEach((userId) => {
+          if (!currentOnlineUsers.has(userId)) {
+            lastSeenByUserId[userId] = now;
+          }
+        });
+
+        return { onlineUsers: userIds, lastSeenByUserId };
+      });
     });
   },
 

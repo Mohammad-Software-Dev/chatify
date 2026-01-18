@@ -13,13 +13,21 @@ import { useAuthStore } from "../store/useAuthStore";
 function ChatPage() {
   const { activeTab, selectedUser, subscribeToMessages, unsubscribeFromMessages } =
     useChatStore();
+  const { processPendingQueue } = useChatStore();
   const { socket } = useAuthStore();
 
   useEffect(() => {
     if (!socket) return;
     subscribeToMessages();
+    processPendingQueue();
     return () => unsubscribeFromMessages();
-  }, [socket, subscribeToMessages, unsubscribeFromMessages]);
+  }, [socket, subscribeToMessages, unsubscribeFromMessages, processPendingQueue]);
+
+  useEffect(() => {
+    const handleOnline = () => processPendingQueue();
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, [processPendingQueue]);
 
   return (
     <div className="relative w-full max-w-6xl h-200">

@@ -2,7 +2,11 @@ import cloudinary from "../lib/cloudinary.js";
 import { getReceiverSocketIds, io } from "../lib/socket.js";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
+import Conversation from "../models/Conversation.js";
 import mongoose from "mongoose";
+
+const getConversationKey = (userIdA, userIdB) =>
+  [userIdA.toString(), userIdB.toString()].sort().join(":");
 
 export const getAllContacts = async (req, res) => {
   try {
@@ -67,6 +71,9 @@ export const getMessagesByUserId = async (req, res) => {
     }
 
     const messages = await Message.find(query)
+      .select(
+        "senderId receiverId text image createdAt status sentAt deliveredAt readAt updatedAt"
+      )
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit)
       .lean();
@@ -124,6 +131,12 @@ export const getMessagesByUserId = async (req, res) => {
           });
         }
       }
+
+      const conversationKey = getConversationKey(myId, userToChatId);
+      await Conversation.updateOne(
+        { participantsKey: conversationKey },
+        { $set: { [`unreadCounts.${myId.toString()}`]: 0 } }
+      );
     }
 
     res.status(200).json(normalizedMessages);
@@ -135,7 +148,7 @@ export const getMessagesByUserId = async (req, res) => {
 
 export const sendMessage = async (req, res) => {
   try {
-    const { text, image } = req.body;
+    const { text, image, clientMessageId } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
 
@@ -171,9 +184,30 @@ export const sendMessage = async (req, res) => {
       status: isDelivered ? "delivered" : "sent",
       deliveredAt,
       sentAt: new Date(),
+      clientMessageId,
     });
 
     await newMessage.save();
+
+    const conversationKey = getConversationKey(senderId, receiverId);
+    await Conversation.findOneAndUpdate(
+      { participantsKey: conversationKey },
+      {
+        $setOnInsert: {
+          participantIds: [senderId, receiverId],
+          participantsKey: conversationKey,
+        },
+        $set: {
+          lastMessageAt: newMessage.createdAt,
+          lastMessageText: newMessage.text || "",
+          lastMessageImage: newMessage.image || "",
+          lastMessageSenderId: senderId,
+          [`unreadCounts.${senderId.toString()}`]: 0,
+        },
+        $inc: { [`unreadCounts.${receiverId.toString()}`]: 1 },
+      },
+      { upsert: true }
+    );
 
     if (receiverSocketIds.length > 0) {
       receiverSocketIds.forEach((socketId) => {
@@ -205,76 +239,126 @@ export const getChatPartners = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
 
-    const partners = await Message.aggregate([
-      {
-        $match: {
-          $or: [
-            { senderId: loggedInUserId },
-            { receiverId: loggedInUserId },
-          ],
-        },
-      },
-      {
-        $addFields: {
-          messageAt: {
-            $ifNull: [
-              "$createdAt",
-              {
-                $ifNull: [
-                  "$sentAt",
-                  { $ifNull: ["$updatedAt", "$deliveredAt"] },
-                ],
-              },
+    let conversations = await Conversation.find({
+      participantIds: loggedInUserId,
+    })
+      .sort({ lastMessageAt: -1 })
+      .lean();
+
+    if (conversations.length === 0) {
+      const partners = await Message.aggregate([
+        {
+          $match: {
+            $or: [
+              { senderId: loggedInUserId },
+              { receiverId: loggedInUserId },
             ],
           },
-          status: { $ifNull: ["$status", "sent"] },
         },
-      },
-      { $sort: { messageAt: -1, _id: -1 } },
-      {
-        $project: {
-          partnerId: {
-            $cond: [
-              { $eq: ["$senderId", loggedInUserId] },
-              "$receiverId",
-              "$senderId",
-            ],
-          },
-          createdAt: "$messageAt",
-          receiverId: 1,
-          status: 1,
-          text: 1,
-          image: 1,
-          senderId: 1,
-        },
-      },
-      {
-        $group: {
-          _id: "$partnerId",
-          lastMessageAt: { $first: "$createdAt" },
-          lastMessageText: { $first: "$text" },
-          lastMessageImage: { $first: "$image" },
-          lastMessageSenderId: { $first: "$senderId" },
-          unreadCount: {
-            $sum: {
-              $cond: [
+        {
+          $addFields: {
+            messageAt: {
+              $ifNull: [
+                "$createdAt",
                 {
-                  $and: [
-                    { $eq: ["$receiverId", loggedInUserId] },
-                    { $ne: ["$status", "read"] },
+                  $ifNull: [
+                    "$sentAt",
+                    { $ifNull: ["$updatedAt", "$deliveredAt"] },
                   ],
                 },
-                1,
-                0,
               ],
+            },
+            status: { $ifNull: ["$status", "sent"] },
+          },
+        },
+        { $sort: { messageAt: -1, _id: -1 } },
+        {
+          $project: {
+            partnerId: {
+              $cond: [
+                { $eq: ["$senderId", loggedInUserId] },
+                "$receiverId",
+                "$senderId",
+              ],
+            },
+            createdAt: "$messageAt",
+            receiverId: 1,
+            status: 1,
+            text: 1,
+            image: 1,
+            senderId: 1,
+          },
+        },
+        {
+          $group: {
+            _id: "$partnerId",
+            lastMessageAt: { $first: "$createdAt" },
+            lastMessageText: { $first: "$text" },
+            lastMessageImage: { $first: "$image" },
+            lastMessageSenderId: { $first: "$senderId" },
+            unreadCount: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: ["$receiverId", loggedInUserId] },
+                      { $ne: ["$status", "read"] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
             },
           },
         },
-      },
-      { $sort: { lastMessageAt: -1 } },
-    ]);
+        { $sort: { lastMessageAt: -1 } },
+      ]);
 
-    const partnerIds = partners.map((partner) => partner._id);
+      if (partners.length > 0) {
+        const ops = partners.map((partner) => {
+          const conversationKey = getConversationKey(
+            loggedInUserId,
+            partner._id
+          );
+          return {
+            updateOne: {
+              filter: { participantsKey: conversationKey },
+              update: {
+                $setOnInsert: {
+                  participantIds: [loggedInUserId, partner._id],
+                  participantsKey: conversationKey,
+                },
+                $set: {
+                  lastMessageAt: partner.lastMessageAt,
+                  lastMessageText: partner.lastMessageText || "",
+                  lastMessageImage: partner.lastMessageImage || "",
+                  lastMessageSenderId: partner.lastMessageSenderId,
+                  [`unreadCounts.${loggedInUserId.toString()}`]:
+                    partner.unreadCount || 0,
+                },
+              },
+              upsert: true,
+            },
+          };
+        });
+
+        await Conversation.bulkWrite(ops);
+        conversations = await Conversation.find({
+          participantIds: loggedInUserId,
+        })
+          .sort({ lastMessageAt: -1 })
+          .lean();
+      }
+    }
+
+    const partnerIds = conversations
+      .map((conversation) =>
+        conversation.participantIds.find(
+          (id) => id.toString() !== loggedInUserId.toString()
+        )
+      )
+      .filter(Boolean);
     const chatPartners = await User.find({
       _id: { $in: partnerIds },
     })
@@ -285,17 +369,27 @@ export const getChatPartners = async (req, res) => {
       chatPartners.map((user) => [user._id.toString(), user])
     );
 
-    const response = partners
-      .map((partner) => {
-        const user = chatPartnerMap.get(partner._id.toString());
+    const response = conversations
+      .map((conversation) => {
+        const partnerId = conversation.participantIds.find(
+          (id) => id.toString() !== loggedInUserId.toString()
+        );
+        if (!partnerId) return null;
+
+        const user = chatPartnerMap.get(partnerId.toString());
         if (!user) return null;
+
+        const unreadCount =
+          conversation.unreadCounts?.[loggedInUserId.toString()] || 0;
+
         return {
           ...user,
-          lastMessageAt: partner.lastMessageAt,
-          unreadCount: partner.unreadCount || 0,
-          lastMessageText: partner.lastMessageText || "",
-          lastMessageImage: partner.lastMessageImage || "",
-          lastMessageSenderId: partner.lastMessageSenderId?.toString() || "",
+          lastMessageAt: conversation.lastMessageAt,
+          unreadCount,
+          lastMessageText: conversation.lastMessageText || "",
+          lastMessageImage: conversation.lastMessageImage || "",
+          lastMessageSenderId:
+            conversation.lastMessageSenderId?.toString() || "",
         };
       })
       .filter(Boolean);
@@ -312,6 +406,7 @@ export const markMessagesAsRead = async (req, res) => {
     const myId = req.user._id;
     const { id: senderId } = req.params;
     const now = new Date();
+    const conversationKey = getConversationKey(myId, senderId);
 
     const messagesToMark = await Message.find({
       senderId,
@@ -334,6 +429,11 @@ export const markMessagesAsRead = async (req, res) => {
         $or: [{ deliveredAt: { $exists: false } }, { deliveredAt: null }],
       },
       { $set: { deliveredAt: now } }
+    );
+
+    await Conversation.updateOne(
+      { participantsKey: conversationKey },
+      { $set: { [`unreadCounts.${myId.toString()}`]: 0 } }
     );
 
     const senderSocketIds = getReceiverSocketIds(senderId);
