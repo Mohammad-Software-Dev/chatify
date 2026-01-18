@@ -21,13 +21,24 @@ export const getMessagesByUserId = async (req, res) => {
   try {
     const myId = req.user._id;
     const { id: userToChatId } = req.params;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+    const before = req.query.before ? new Date(req.query.before) : null;
 
-    const messages = await Message.find({
+    const query = {
       $or: [
         { senderId: myId, receiverId: userToChatId },
         { senderId: userToChatId, receiverId: myId },
       ],
-    });
+    };
+    if (before && !Number.isNaN(before.valueOf())) {
+      query.createdAt = { $lt: before };
+    }
+
+    const messages = await Message.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+    messages.reverse();
 
     res.status(200).json(messages);
   } catch (error) {
@@ -89,26 +100,56 @@ export const getChatPartners = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
 
-    // find all the messages where the logged-in user is either sender or receiver
-    const messages = await Message.find({
-      $or: [{ senderId: loggedInUserId }, { receiverId: loggedInUserId }],
-    });
+    const partners = await Message.aggregate([
+      {
+        $match: {
+          $or: [
+            { senderId: loggedInUserId },
+            { receiverId: loggedInUserId },
+          ],
+        },
+      },
+      {
+        $project: {
+          partnerId: {
+            $cond: [
+              { $eq: ["$senderId", loggedInUserId] },
+              "$receiverId",
+              "$senderId",
+            ],
+          },
+          createdAt: 1,
+        },
+      },
+      {
+        $group: {
+          _id: "$partnerId",
+          lastMessageAt: { $max: "$createdAt" },
+        },
+      },
+      { $sort: { lastMessageAt: -1 } },
+    ]);
 
-    const chatPartnerIds = [
-      ...new Set(
-        messages.map((msg) =>
-          msg.senderId.toString() === loggedInUserId.toString()
-            ? msg.receiverId.toString()
-            : msg.senderId.toString()
-        )
-      ),
-    ];
-
+    const partnerIds = partners.map((partner) => partner._id);
     const chatPartners = await User.find({
-      _id: { $in: chatPartnerIds },
-    }).select("-password");
+      _id: { $in: partnerIds },
+    })
+      .select("-password")
+      .lean();
 
-    res.status(200).json(chatPartners);
+    const chatPartnerMap = new Map(
+      chatPartners.map((user) => [user._id.toString(), user])
+    );
+
+    const response = partners
+      .map((partner) => {
+        const user = chatPartnerMap.get(partner._id.toString());
+        if (!user) return null;
+        return { ...user, lastMessageAt: partner.lastMessageAt };
+      })
+      .filter(Boolean);
+
+    res.status(200).json(response);
   } catch (error) {
     console.error("Error in getChatPartners: ", error.message);
     res.status(500).json({ error: "Internal server error" });
