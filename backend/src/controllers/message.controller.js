@@ -8,6 +8,52 @@ import mongoose from "mongoose";
 const getConversationKey = (userIdA, userIdB) =>
   [userIdA.toString(), userIdB.toString()].sort().join(":");
 
+const extractFirstUrl = (text) => {
+  if (!text) return null;
+  const match = text.match(/https?:\/\/\S+/i);
+  return match ? match[0] : null;
+};
+
+const fetchLinkPreview = async (url) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "ChatifyBot/1.0",
+      },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const getMeta = (property) => {
+      const match = html.match(
+        new RegExp(`<meta[^>]+property=["']${property}["'][^>]*>`, "i")
+      );
+      if (!match) return null;
+      const contentMatch = match[0].match(/content=["']([^"']+)["']/i);
+      return contentMatch ? contentMatch[1] : null;
+    };
+    const title =
+      getMeta("og:title") ||
+      html.match(/<title>([^<]*)<\/title>/i)?.[1] ||
+      url;
+    const description = getMeta("og:description");
+    const image = getMeta("og:image");
+
+    return {
+      url,
+      title,
+      description,
+      image,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 export const getAllContacts = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
@@ -72,7 +118,7 @@ export const getMessagesByUserId = async (req, res) => {
 
     const messages = await Message.find(query)
       .select(
-        "senderId receiverId text image images createdAt status sentAt deliveredAt readAt updatedAt"
+        "senderId receiverId text image images replyToMessageId reactions editedAt deletedAt deletedBy linkPreview createdAt status sentAt deliveredAt readAt updatedAt"
       )
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit)
@@ -93,6 +139,31 @@ export const getMessagesByUserId = async (req, res) => {
         status: msg.status || "sent",
       };
     });
+
+    const replyIds = normalizedMessages
+      .map((msg) => msg.replyToMessageId)
+      .filter(Boolean);
+    if (replyIds.length > 0) {
+      const replyMessages = await Message.find({ _id: { $in: replyIds } })
+        .select("senderId text image images deletedAt")
+        .lean();
+      const replyMap = new Map(
+        replyMessages.map((msg) => [msg._id.toString(), msg])
+      );
+      normalizedMessages.forEach((msg) => {
+        if (!msg.replyToMessageId) return;
+        const reply = replyMap.get(msg.replyToMessageId.toString());
+        if (!reply) return;
+        msg.replyPreview = {
+          _id: reply._id,
+          senderId: reply.senderId,
+          text: reply.deletedAt ? "Message deleted" : reply.text,
+          image: reply.image,
+          images: reply.images,
+          deletedAt: reply.deletedAt,
+        };
+      });
+    }
 
     normalizedMessages.reverse();
 
@@ -148,7 +219,7 @@ export const getMessagesByUserId = async (req, res) => {
 
 export const sendMessage = async (req, res) => {
   try {
-    const { text, image, images, clientMessageId } = req.body;
+    const { text, image, images, clientMessageId, replyToMessageId } = req.body;
     const { id: receiverId } = req.params;
     const senderId = req.user._id;
 
@@ -186,12 +257,28 @@ export const sendMessage = async (req, res) => {
     const isDelivered = receiverSocketIds.length > 0;
     const deliveredAt = isDelivered ? new Date() : undefined;
 
+    let replyTo;
+    if (replyToMessageId) {
+      replyTo = await Message.findById(replyToMessageId).select("_id");
+      if (!replyTo) {
+        return res.status(404).json({ message: "Reply target not found." });
+      }
+    }
+
+    let linkPreview = null;
+    const url = extractFirstUrl(text);
+    if (url) {
+      linkPreview = await fetchLinkPreview(url);
+    }
+
     const newMessage = new Message({
       senderId,
       receiverId,
       text,
       image: imageUrl,
       images: imageUrls,
+      replyToMessageId: replyTo?._id,
+      linkPreview,
       status: isDelivered ? "delivered" : "sent",
       deliveredAt,
       sentAt: new Date(),
@@ -199,6 +286,23 @@ export const sendMessage = async (req, res) => {
     });
 
     await newMessage.save();
+
+    let messagePayload = newMessage.toObject();
+    if (replyTo) {
+      const replyMessage = await Message.findById(replyTo._id)
+        .select("senderId text image images deletedAt")
+        .lean();
+      if (replyMessage) {
+        messagePayload.replyPreview = {
+          _id: replyMessage._id,
+          senderId: replyMessage.senderId,
+          text: replyMessage.deletedAt ? "Message deleted" : replyMessage.text,
+          image: replyMessage.image,
+          images: replyMessage.images,
+          deletedAt: replyMessage.deletedAt,
+        };
+      }
+    }
 
     const conversationKey = getConversationKey(senderId, receiverId);
     await Conversation.findOneAndUpdate(
@@ -223,7 +327,7 @@ export const sendMessage = async (req, res) => {
 
     if (receiverSocketIds.length > 0) {
       receiverSocketIds.forEach((socketId) => {
-        io.to(socketId).emit("newMessage", newMessage);
+        io.to(socketId).emit("newMessage", messagePayload);
       });
     }
 
@@ -232,7 +336,7 @@ export const sendMessage = async (req, res) => {
       if (senderSocketIds.length > 0) {
         senderSocketIds.forEach((socketId) => {
           io.to(socketId).emit("messageStatusUpdate", {
-            messageIds: [newMessage._id.toString()],
+            messageIds: [messagePayload._id.toString()],
             status: "delivered",
             deliveredAt: deliveredAt.toISOString(),
           });
@@ -240,9 +344,146 @@ export const sendMessage = async (req, res) => {
       }
     }
 
-    res.status(201).json(newMessage);
+    res.status(201).json(messagePayload);
   } catch (error) {
     console.log("Error in sendMessage controller: ", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const addReaction = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { id: messageId } = req.params;
+    const { emoji } = req.body;
+    if (!emoji) return res.status(400).json({ message: "Emoji required." });
+
+    const message = await Message.findById(messageId);
+    if (!message) return res.status(404).json({ message: "Message not found" });
+    const isParticipant =
+      message.senderId.toString() === userId.toString() ||
+      message.receiverId.toString() === userId.toString();
+    if (!isParticipant) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+
+    const existing = message.reactions.find(
+      (reaction) =>
+        reaction.userId.toString() === userId.toString() &&
+        reaction.emoji === emoji
+    );
+
+    if (existing) {
+      message.reactions = message.reactions.filter(
+        (reaction) =>
+          !(
+            reaction.userId.toString() === userId.toString() &&
+            reaction.emoji === emoji
+          )
+      );
+    } else {
+      message.reactions.push({ userId, emoji });
+    }
+
+    await message.save();
+
+    const receiverSocketIds = getReceiverSocketIds(
+      message.receiverId.toString()
+    );
+    const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
+    const reactions = message.reactions.map((reaction) => ({
+      userId: reaction.userId.toString(),
+      emoji: reaction.emoji,
+      createdAt: reaction.createdAt,
+    }));
+    [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
+      io.to(socketId).emit("messageReactionUpdate", {
+        messageId: message._id.toString(),
+        reactions,
+      });
+    });
+
+    res.status(200).json({ reactions });
+  } catch (error) {
+    console.error("Error in addReaction:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const updateMessage = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { id: messageId } = req.params;
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ message: "Text required." });
+
+    const message = await Message.findById(messageId);
+    if (!message) return res.status(404).json({ message: "Message not found" });
+    if (message.senderId.toString() !== userId.toString()) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+    if (message.deletedAt) {
+      return res.status(400).json({ message: "Message deleted" });
+    }
+
+    const url = extractFirstUrl(text);
+    const linkPreview = url ? await fetchLinkPreview(url) : null;
+
+    message.text = text;
+    message.editedAt = new Date();
+    message.linkPreview = linkPreview;
+    await message.save();
+
+    const receiverSocketIds = getReceiverSocketIds(
+      message.receiverId.toString()
+    );
+    const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
+    const messagePayload = message.toObject();
+    [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
+      io.to(socketId).emit("messageUpdated", messagePayload);
+    });
+
+    res.status(200).json(messagePayload);
+  } catch (error) {
+    console.error("Error in updateMessage:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const deleteMessage = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { id: messageId } = req.params;
+
+    const message = await Message.findById(messageId);
+    if (!message) return res.status(404).json({ message: "Message not found" });
+    if (message.senderId.toString() !== userId.toString()) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+
+    message.deletedAt = new Date();
+    message.deletedBy = userId;
+    message.text = "";
+    message.image = "";
+    message.images = [];
+    message.linkPreview = null;
+    await message.save();
+
+    const receiverSocketIds = getReceiverSocketIds(
+      message.receiverId.toString()
+    );
+    const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
+    [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
+      io.to(socketId).emit("messageDeleted", {
+        messageId: message._id.toString(),
+        deletedAt: message.deletedAt,
+        deletedBy: userId.toString(),
+      });
+    });
+
+    res.status(200).json({ messageId: message._id.toString() });
+  } catch (error) {
+    console.error("Error in deleteMessage:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };

@@ -4,7 +4,13 @@ import { useEffect } from "react";
 import { useAuthStore } from "../store/useAuthStore";
 
 function ChatHeader() {
-  const { selectedUser, setSelectedUser, typingByUserId } = useChatStore();
+  const {
+    selectedUser,
+    setSelectedUser,
+    typingByUserId,
+    replyToMessage,
+    clearReplyToMessage,
+  } = useChatStore();
   const { onlineUsers, lastSeenByUserId, presenceByUserId } = useAuthStore();
   const isOnline = onlineUsers?.includes(selectedUser._id);
   const isTyping = typingByUserId[selectedUser._id];
@@ -21,14 +27,19 @@ function ChatHeader() {
 
   useEffect(() => {
     const handleEscKey = (event) => {
-      if (event.key === "Escape") setSelectedUser(null);
+      if (event.key !== "Escape") return;
+      if (replyToMessage) {
+        clearReplyToMessage();
+        return;
+      }
+      setSelectedUser(null);
     };
 
     window.addEventListener("keydown", handleEscKey);
 
     // cleanup function
     return () => window.removeEventListener("keydown", handleEscKey);
-  }, [setSelectedUser]);
+  }, [setSelectedUser, replyToMessage, clearReplyToMessage]);
 
   return (
     <div

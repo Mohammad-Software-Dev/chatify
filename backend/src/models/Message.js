@@ -24,6 +24,41 @@ const messageSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    replyToMessageId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message",
+    },
+    reactions: [
+      {
+        userId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        emoji: {
+          type: String,
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
+    editedAt: {
+      type: Date,
+    },
+    deletedAt: {
+      type: Date,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    linkPreview: {
+      url: String,
+      title: String,
+      description: String,
+      image: String,
+    },
     status: {
       type: String,
       enum: ["sent", "delivered", "read"],
