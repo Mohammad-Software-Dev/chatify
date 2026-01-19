@@ -62,7 +62,6 @@ export const useChatStore = create((set, get) => ({
   pendingQueue: loadPendingQueue(),
   isSoundEnabled: JSON.parse(localStorage.getItem("isSoundEnabled")) === true,
   replyToMessage: null,
-  editingMessage: null,
 
   toggleSound: () => {
     localStorage.setItem("isSoundEnabled", !get().isSoundEnabled);
@@ -72,8 +71,6 @@ export const useChatStore = create((set, get) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
   setReplyToMessage: (message) => set({ replyToMessage: message }),
   clearReplyToMessage: () => set({ replyToMessage: null }),
-  setEditingMessage: (message) => set({ editingMessage: message }),
-  clearEditingMessage: () => set({ editingMessage: null }),
   setSelectedUser: (selectedUser) =>
     set((state) => ({
       selectedUser,
@@ -271,42 +268,6 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  updateMessage: async (messageId, text) => {
-    try {
-      const res = await axiosInstance.patch(`/messages/${messageId}`, { text });
-      set((state) => ({
-        messages: state.messages.map((msg) =>
-          msg._id === messageId ? res.data : msg
-        ),
-      }));
-      get().clearEditingMessage();
-    } catch (error) {
-      toast.error(error.response?.data?.message || "Update failed");
-    }
-  },
-
-  deleteMessage: async (messageId) => {
-    try {
-      await axiosInstance.delete(`/messages/${messageId}`);
-      set((state) => ({
-        messages: state.messages.map((msg) =>
-          msg._id === messageId
-            ? {
-                ...msg,
-                deletedAt: new Date().toISOString(),
-                text: "",
-                image: "",
-                images: [],
-                linkPreview: null,
-              }
-            : msg
-        ),
-      }));
-    } catch (error) {
-      toast.error(error.response?.data?.message || "Delete failed");
-    }
-  },
-
   addReaction: async (messageId, emoji) => {
     try {
       const res = await axiosInstance.post(`/messages/${messageId}/reactions`, {
@@ -443,8 +404,6 @@ export const useChatStore = create((set, get) => ({
     socket.off("messageStatusUpdate");
     socket.off("typing:start");
     socket.off("typing:stop");
-    socket.off("messageUpdated");
-    socket.off("messageDeleted");
     socket.off("messageReactionUpdate");
 
     socket.on("newMessage", (newMessage) => {
@@ -536,34 +495,6 @@ export const useChatStore = create((set, get) => ({
       }));
     });
 
-    socket.on("messageUpdated", (updatedMessage) => {
-      if (!updatedMessage?._id) return;
-      set((state) => ({
-        messages: state.messages.map((msg) =>
-          String(msg._id) === String(updatedMessage._id) ? updatedMessage : msg
-        ),
-      }));
-    });
-
-    socket.on("messageDeleted", ({ messageId, deletedAt, deletedBy }) => {
-      if (!messageId) return;
-      set((state) => ({
-        messages: state.messages.map((msg) =>
-          String(msg._id) === String(messageId)
-            ? {
-                ...msg,
-                deletedAt: deletedAt || new Date().toISOString(),
-                deletedBy,
-                text: "",
-                image: "",
-                images: [],
-                linkPreview: null,
-              }
-            : msg
-        ),
-      }));
-    });
-
     socket.on("messageReactionUpdate", ({ messageId, reactions }) => {
       if (!messageId) return;
       set((state) => ({
@@ -599,8 +530,6 @@ export const useChatStore = create((set, get) => ({
     socket.off("messageStatusUpdate");
     socket.off("typing:start");
     socket.off("typing:stop");
-    socket.off("messageUpdated");
-    socket.off("messageDeleted");
     socket.off("messageReactionUpdate");
   },
 

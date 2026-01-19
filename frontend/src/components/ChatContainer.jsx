@@ -18,8 +18,6 @@ function ChatContainer() {
     hasMoreMessages,
     typingByUserId,
     setReplyToMessage,
-    setEditingMessage,
-    deleteMessage,
     addReaction,
   } = useChatStore();
   const { authUser } = useAuthStore();
@@ -377,11 +375,8 @@ function ChatContainer() {
                             minute: "2-digit",
                           })}
                         </span>
-                        {!isDeleted && msg.editedAt && (
-                          <span className="text-slate-300/80">(edited)</span>
-                        )}
-                        {!isDeleted && (
-                          <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 ml-2">
+                      {!isDeleted && (
+                        <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 ml-2">
                           <button
                             type="button"
                             onClick={(e) => {
@@ -413,42 +408,18 @@ function ChatContainer() {
                             >
                               ❤️
                             </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                addReaction(msg._id, "😂");
-                              }}
-                              className="text-slate-200/80 hover:text-white"
-                            >
-                              😂
-                            </button>
-                            {msg.senderId === authUser._id && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setEditingMessage(msg);
-                                  }}
-                                  className="text-slate-200/80 hover:text-white"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteMessage(msg._id);
-                                  }}
-                                  className="text-slate-200/80 hover:text-white"
-                                >
-                                  Delete
-                                </button>
-                              </>
-                            )}
-                          </span>
-                        )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              addReaction(msg._id, "😂");
+                            }}
+                            className="text-slate-200/80 hover:text-white"
+                          >
+                            😂
+                          </button>
+                        </span>
+                      )}
                         {msg.senderId === authUser._id && (
                           <span
                             className="flex items-center"

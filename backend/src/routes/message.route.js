@@ -4,8 +4,6 @@ import {
   getChatPartners,
   getMessagesByUserId,
   addReaction,
-  updateMessage,
-  deleteMessage,
   markMessagesAsRead,
   sendMessage,
 } from "../controllers/message.controller.js";
@@ -22,8 +20,6 @@ router.get("/contacts", getAllContacts);
 router.get("/chats", getChatPartners);
 router.get("/:id", getMessagesByUserId);
 router.post("/:id/reactions", addReaction);
-router.patch("/:id", updateMessage);
-router.delete("/:id", deleteMessage);
 router.put("/read/:id", markMessagesAsRead);
 router.post("/send/:id", sendMessage);
 

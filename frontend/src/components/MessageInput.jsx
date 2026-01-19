@@ -18,9 +18,6 @@ function MessageInput() {
     emitTypingStop,
     replyToMessage,
     clearReplyToMessage,
-    editingMessage,
-    clearEditingMessage,
-    updateMessage,
   } = useChatStore();
   const { selectedUser } = useChatStore();
   const typingStopTimerRef = useRef(null);
@@ -37,12 +34,6 @@ function MessageInput() {
       }
     };
   }, [emitTypingStop, selectedUser?._id]);
-
-  useEffect(() => {
-    if (editingMessage) {
-      setText(editingMessage.text || "");
-    }
-  }, [editingMessage]);
 
   const compressImage = (file) =>
     new Promise((resolve, reject) => {
@@ -113,27 +104,22 @@ function MessageInput() {
     if (!text.trim() && imagePreviews.length === 0) return;
     if (isSoundEnabled) playRandomKeyStrokeSound();
 
-    if (editingMessage) {
-      updateMessage(editingMessage._id, text.trim());
-      clearEditingMessage();
-    } else {
-      sendMessage({
-        text: text.trim(),
-        images: imagePreviews.map((img) => img.dataUrl),
-        replyToMessageId: replyToMessage?._id,
-        replyPreview: replyToMessage
-          ? {
-              _id: replyToMessage._id,
-              senderId: replyToMessage.senderId,
-              text: replyToMessage.text,
-              image: replyToMessage.image,
-              images: replyToMessage.images,
-              deletedAt: replyToMessage.deletedAt,
-            }
-          : null,
-      });
-      clearReplyToMessage();
-    }
+    sendMessage({
+      text: text.trim(),
+      images: imagePreviews.map((img) => img.dataUrl),
+      replyToMessageId: replyToMessage?._id,
+      replyPreview: replyToMessage
+        ? {
+            _id: replyToMessage._id,
+            senderId: replyToMessage.senderId,
+            text: replyToMessage.text,
+            image: replyToMessage.image,
+            images: replyToMessage.images,
+            deletedAt: replyToMessage.deletedAt,
+          }
+        : null,
+    });
+    clearReplyToMessage();
     if (selectedUser?._id) {
       emitTypingStop(selectedUser._id);
     }
@@ -167,23 +153,8 @@ function MessageInput() {
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
-      {(editingMessage || replyToMessage || imagePreviews.length > 0) && (
+      {(replyToMessage || imagePreviews.length > 0) && (
         <div className="max-w-3xl mx-auto mb-3 grid grid-cols-4 gap-2">
-          {editingMessage && (
-            <div className="col-span-4 flex items-center justify-between bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300">
-              <span className="truncate">Editing message</span>
-              <button
-                type="button"
-                onClick={() => {
-                  clearEditingMessage();
-                  setText("");
-                }}
-                className="text-slate-400 hover:text-slate-200"
-              >
-                Cancel
-              </button>
-            </div>
-          )}
           {replyToMessage && (
             <div className="col-span-4 flex items-center justify-between bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300">
               <span className="truncate">

@@ -17,7 +17,7 @@ A real-time chat app with a React frontend and an Express + Socket.IO backend.
 - Offline queue with retries and exponential backoff
 - Optimistic UI with server reconciliation
 - Replies with jump-to-message highlight
-- Reactions, edit/delete with tags, and link previews
+- Reactions and link previews
 - Profile picture updates
 
 ## Tech Stack
