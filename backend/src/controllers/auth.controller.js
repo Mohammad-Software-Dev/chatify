@@ -5,8 +5,70 @@ import bcrypt from "bcryptjs";
 import { ENV } from "../lib/env.js";
 import cloudinary from "../lib/cloudinary.js";
 
+const normalizeUsername = (username) => username?.trim().toLowerCase();
+
+const isValidUsername = (username) =>
+  typeof username === "string" && /^[a-z0-9_]{3,20}$/.test(username);
+
+const generateUsernameSuggestions = (base) => {
+  const suggestions = new Set();
+  while (suggestions.size < 3) {
+    const digits = Math.floor(1000 + Math.random() * 9000);
+    suggestions.add(`${base}_${digits}`);
+  }
+  return Array.from(suggestions);
+};
+
+const generateUniqueUsername = async () => {
+  for (let i = 0; i < 10; i += 1) {
+    const candidate = `user_${Math.floor(1000 + Math.random() * 9000)}`;
+    const existing = await User.findOne({ username: candidate }).select("_id");
+    if (!existing) return candidate;
+  }
+  const fallback = `user_${Date.now().toString().slice(-6)}`;
+  return fallback;
+};
+
+const ensureUsernameForUser = async (user) => {
+  if (user.username) return user;
+  const generated = await generateUniqueUsername();
+  user.username = generated;
+  await user.save();
+  return user;
+};
+
+export const checkUsername = async (req, res) => {
+  const rawUsername = req.query.username;
+  if (!rawUsername) {
+    return res.status(400).json({
+      available: false,
+      message: "Username is required",
+    });
+  }
+
+  const normalized = normalizeUsername(rawUsername);
+  if (!isValidUsername(normalized)) {
+    return res.status(400).json({
+      available: false,
+      message: "Username must be 3-20 characters and use letters, numbers, or underscores",
+    });
+  }
+
+  const existing = await User.findOne({ username: normalized }).select("_id");
+  if (!existing) {
+    return res.status(200).json({ available: true, normalizedUsername: normalized });
+  }
+
+  return res.status(200).json({
+    available: false,
+    normalizedUsername: normalized,
+    suggestions: generateUsernameSuggestions(normalized),
+    message: "This username is already taken",
+  });
+};
+
 export const signup = async (req, res) => {
-  const { fullName, email, password } = req.body;
+  const { fullName, email, password, username } = req.body;
 
   try {
     if (!fullName || !email || !password) {
@@ -28,6 +90,24 @@ export const signup = async (req, res) => {
     const user = await User.findOne({ email });
     if (user) return res.status(400).json({ message: "Email already exists" });
 
+    let finalUsername = normalizeUsername(username);
+    if (finalUsername) {
+      if (!isValidUsername(finalUsername)) {
+        return res.status(400).json({
+          message:
+            "Username must be 3-20 characters and use letters, numbers, or underscores",
+        });
+      }
+      const existingUsername = await User.findOne({
+        username: finalUsername,
+      }).select("_id");
+      if (existingUsername) {
+        return res.status(400).json({ message: "Username already exists" });
+      }
+    } else {
+      finalUsername = await generateUniqueUsername();
+    }
+
     // 123456 => $dnjasdkasj_?dmsakmk
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
@@ -35,6 +115,7 @@ export const signup = async (req, res) => {
     const newUser = new User({
       fullName,
       email,
+      username: finalUsername,
       password: hashedPassword,
     });
 
@@ -52,6 +133,7 @@ export const signup = async (req, res) => {
         _id: newUser._id,
         fullName: newUser.fullName,
         email: newUser.email,
+        username: newUser.username,
         profilePic: newUser.profilePic,
       });
 
@@ -85,17 +167,19 @@ export const login = async (req, res) => {
     if (!user) return res.status(400).json({ message: "Invalid credentials" });
     // never tell the client which one is incorrect: password or email
 
+    const ensuredUser = await ensureUsernameForUser(user);
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
     if (!isPasswordCorrect)
       return res.status(400).json({ message: "Invalid credentials" });
 
-    generateToken(user._id, res);
+    generateToken(ensuredUser._id, res);
 
     res.status(200).json({
-      _id: user._id,
-      fullName: user.fullName,
-      email: user.email,
-      profilePic: user.profilePic,
+      _id: ensuredUser._id,
+      fullName: ensuredUser.fullName,
+      email: ensuredUser.email,
+      username: ensuredUser.username,
+      profilePic: ensuredUser.profilePic,
     });
   } catch (error) {
     console.error("Error in login controller:", error);
@@ -106,6 +190,16 @@ export const login = async (req, res) => {
 export const logout = (_, res) => {
   res.cookie("jwt", "", { maxAge: 0 });
   res.status(200).json({ message: "Logged out successfully" });
+};
+
+export const checkAuth = async (req, res) => {
+  try {
+    const ensuredUser = await ensureUsernameForUser(req.user);
+    res.status(200).json(ensuredUser);
+  } catch (error) {
+    console.log("Error in checkAuth controller:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
 };
 
 export const updateProfile = async (req, res) => {

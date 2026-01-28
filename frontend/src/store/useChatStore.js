@@ -47,6 +47,26 @@ const sortMessages = (messages) =>
     return String(aKey.id).localeCompare(String(bKey.id));
   });
 
+const getMessageTimestamp = (msg) => {
+  const time =
+    msg?.createdAt ||
+    msg?.sentAt ||
+    msg?.updatedAt ||
+    msg?.deliveredAt ||
+    msg?.readAt;
+  return time ? new Date(time).getTime() : 0;
+};
+
+const isChatLastMessage = (chat, message) => {
+  if (!chat?.lastMessageAt) return false;
+  const chatTime = new Date(chat.lastMessageAt).getTime();
+  const msgTime = getMessageTimestamp(message);
+  if (chatTime !== msgTime) return false;
+  return (
+    String(chat.lastMessageSenderId || "") === String(message.senderId || "")
+  );
+};
+
 export const useChatStore = create((set, get) => ({
   allContacts: [],
   chats: [],
@@ -59,6 +79,12 @@ export const useChatStore = create((set, get) => ({
   hasMoreMessages: true,
   unreadByUserId: {},
   typingByUserId: {},
+  searchResults: [],
+  pinnedMessages: [],
+  starredMessages: [],
+  isSearching: false,
+  isPinnedLoading: false,
+  isStarredLoading: false,
   pendingQueue: loadPendingQueue(),
   isSoundEnabled: JSON.parse(localStorage.getItem("isSoundEnabled")) === true,
   replyToMessage: null,
@@ -71,6 +97,31 @@ export const useChatStore = create((set, get) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
   setReplyToMessage: (message) => set({ replyToMessage: message }),
   clearReplyToMessage: () => set({ replyToMessage: null }),
+  resetForLogout: () => {
+    savePendingQueue([]);
+    set((state) => ({
+      allContacts: [],
+      chats: [],
+      messages: [],
+      activeTab: "chats",
+      selectedUser: null,
+      isUsersLoading: false,
+      isMessagesLoading: false,
+      isLoadingMoreMessages: false,
+      hasMoreMessages: true,
+      unreadByUserId: {},
+      typingByUserId: {},
+      searchResults: [],
+      pinnedMessages: [],
+      starredMessages: [],
+      isSearching: false,
+      isPinnedLoading: false,
+      isStarredLoading: false,
+      pendingQueue: [],
+      replyToMessage: null,
+      isSoundEnabled: state.isSoundEnabled,
+    }));
+  },
   setSelectedUser: (selectedUser) =>
     set((state) => ({
       selectedUser,
@@ -195,7 +246,7 @@ export const useChatStore = create((set, get) => ({
       sentAt: new Date().toISOString(),
       status: "sent",
       clientMessageId: tempId,
-      uploadProgress: images.length > 0 ? 0 : null,
+      uploadProgress: null,
       isOptimistic: true, // flag to identify optimistic messages (optional)
     };
     // immidetaly update the ui by adding the message
@@ -218,20 +269,7 @@ export const useChatStore = create((set, get) => ({
     try {
       const res = await axiosInstance.post(
         `/messages/send/${selectedUser._id}`,
-        { ...messageData, clientMessageId: tempId },
-        {
-          onUploadProgress: (event) => {
-            if (!event.total) return;
-            const percent = Math.round((event.loaded / event.total) * 100);
-            set((state) => ({
-              messages: state.messages.map((msg) =>
-                msg._id === tempId
-                  ? { ...msg, uploadProgress: percent }
-                  : msg
-              ),
-            }));
-          },
-        }
+        { ...messageData, clientMessageId: tempId }
       );
       set((state) => ({
         messages: sortMessages(
@@ -306,20 +344,7 @@ export const useChatStore = create((set, get) => ({
     try {
       const res = await axiosInstance.post(
         `/messages/send/${readyEntry.toUserId}`,
-        readyEntry.payload,
-        {
-          onUploadProgress: (event) => {
-            if (!event.total) return;
-            const percent = Math.round((event.loaded / event.total) * 100);
-            set((state) => ({
-              messages: state.messages.map((msg) =>
-                msg._id === readyEntry.id
-                  ? { ...msg, uploadProgress: percent }
-                  : msg
-              ),
-            }));
-          },
-        }
+        readyEntry.payload
       );
 
       set((state) => ({
@@ -396,6 +421,215 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  searchMessages: async (userId, query) => {
+    const trimmed = query?.trim();
+    if (!userId || !trimmed) {
+      set({ searchResults: [], isSearching: false });
+      return;
+    }
+    set({ isSearching: true });
+    try {
+      const res = await axiosInstance.get(
+        `/messages/search/${userId}?q=${encodeURIComponent(trimmed)}`
+      );
+      set({ searchResults: res.data || [] });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Search failed");
+    } finally {
+      set({ isSearching: false });
+    }
+  },
+
+  clearSearchResults: () => set({ searchResults: [], isSearching: false }),
+
+  loadPinnedMessages: async (userId) => {
+    if (!userId) return;
+    set({ isPinnedLoading: true });
+    try {
+      const res = await axiosInstance.get(`/messages/pinned/${userId}`);
+      set({ pinnedMessages: res.data || [] });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load pinned");
+    } finally {
+      set({ isPinnedLoading: false });
+    }
+  },
+
+  loadStarredMessages: async (userId) => {
+    if (!userId) return;
+    set({ isStarredLoading: true });
+    try {
+      const res = await axiosInstance.get(`/messages/starred/${userId}`);
+      set({ starredMessages: res.data || [] });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load starred");
+    } finally {
+      set({ isStarredLoading: false });
+    }
+  },
+
+  togglePin: async (messageId) => {
+    try {
+      const res = await axiosInstance.post(`/messages/${messageId}/pin`);
+      const updated = res.data;
+      const authUser = useAuthStore.getState().authUser;
+      const isPinnedForMe = updated.pinnedBy?.some(
+        (id) => String(id) === String(authUser?._id)
+      );
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          String(msg._id) === String(updated._id)
+            ? { ...msg, pinnedBy: updated.pinnedBy || [] }
+            : msg
+        ),
+        pinnedMessages: isPinnedForMe
+          ? [
+              updated,
+              ...state.pinnedMessages.filter(
+                (m) => String(m._id) !== String(updated._id)
+              ),
+            ]
+          : state.pinnedMessages.filter(
+              (m) => String(m._id) !== String(updated._id)
+            ),
+      }));
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Pin failed");
+    }
+  },
+
+  toggleStar: async (messageId) => {
+    try {
+      const res = await axiosInstance.post(`/messages/${messageId}/star`);
+      const updated = res.data;
+      const authUser = useAuthStore.getState().authUser;
+      const isStarredForMe = updated.starredBy?.some(
+        (id) => String(id) === String(authUser?._id)
+      );
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          String(msg._id) === String(updated._id)
+            ? { ...msg, starredBy: updated.starredBy || [] }
+            : msg
+        ),
+        starredMessages: isStarredForMe
+          ? [
+              updated,
+              ...state.starredMessages.filter(
+                (m) => String(m._id) !== String(updated._id)
+              ),
+            ]
+          : state.starredMessages.filter(
+              (m) => String(m._id) !== String(updated._id)
+            ),
+      }));
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Star failed");
+    }
+  },
+
+  editMessage: async (messageId, text) => {
+    try {
+      const res = await axiosInstance.put(`/messages/${messageId}`, { text });
+      const updated = res.data;
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          msg._id === messageId
+            ? {
+                ...msg,
+                text: updated.text,
+                editedAt: updated.editedAt,
+                updatedAt: updated.updatedAt,
+              }
+            : msg
+        ),
+        pinnedMessages: state.pinnedMessages.map((msg) =>
+          String(msg._id) === String(messageId)
+            ? { ...msg, text: updated.text, editedAt: updated.editedAt }
+            : msg
+        ),
+        starredMessages: state.starredMessages.map((msg) =>
+          String(msg._id) === String(messageId)
+            ? { ...msg, text: updated.text, editedAt: updated.editedAt }
+            : msg
+        ),
+        chats: state.chats.map((chat) =>
+          isChatLastMessage(chat, updated)
+            ? {
+                ...chat,
+                lastMessageText: updated.text || "",
+              }
+            : chat
+        ),
+      }));
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to edit message");
+      return false;
+    }
+  },
+
+  deleteMessage: async (messageId) => {
+    try {
+      const res = await axiosInstance.delete(`/messages/${messageId}`);
+      const updated = res.data;
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          msg._id === messageId
+            ? {
+                ...msg,
+                text: "",
+                image: "",
+                images: [],
+                linkPreview: null,
+                deletedAt: updated.deletedAt,
+                deletedBy: updated.deletedBy,
+              }
+            : msg
+        ),
+        pinnedMessages: state.pinnedMessages.filter(
+          (msg) => String(msg._id) !== String(messageId)
+        ),
+        starredMessages: state.starredMessages.filter(
+          (msg) => String(msg._id) !== String(messageId)
+        ),
+        chats: state.chats.map((chat) =>
+          isChatLastMessage(chat, updated)
+            ? {
+                ...chat,
+                lastMessageText: "Message deleted",
+                lastMessageImage: "",
+                lastMessageImages: [],
+              }
+            : chat
+        ),
+      }));
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to delete message");
+      return false;
+    }
+  },
+
+  fetchMessageById: async (messageId) => {
+    try {
+      const res = await axiosInstance.get(`/messages/item/${messageId}`);
+      const message = res.data;
+      if (!message?._id) return null;
+      set((state) => {
+        const exists = state.messages.some(
+          (msg) => String(msg._id) === String(message._id)
+        );
+        if (exists) return state;
+        return { messages: sortMessages([...state.messages, message]) };
+      });
+      return message;
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to load message");
+      return null;
+    }
+  },
+
   subscribeToMessages: () => {
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
@@ -405,6 +639,10 @@ export const useChatStore = create((set, get) => ({
     socket.off("typing:start");
     socket.off("typing:stop");
     socket.off("messageReactionUpdate");
+    socket.off("messageUpdated");
+    socket.off("messageDeleted");
+    socket.off("messagePinned");
+    socket.off("messageStarred");
 
     socket.on("newMessage", (newMessage) => {
       const selectedUserId = get().selectedUser?._id;
@@ -504,6 +742,133 @@ export const useChatStore = create((set, get) => ({
       }));
     });
 
+    socket.on("messageUpdated", (updatedMessage) => {
+      if (!updatedMessage?._id) return;
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          String(msg._id) === String(updatedMessage._id)
+            ? {
+                ...msg,
+                text: updatedMessage.text,
+                editedAt: updatedMessage.editedAt,
+                updatedAt: updatedMessage.updatedAt,
+              }
+            : msg
+        ),
+        pinnedMessages: state.pinnedMessages.map((msg) =>
+          String(msg._id) === String(updatedMessage._id)
+            ? {
+                ...msg,
+                text: updatedMessage.text,
+                editedAt: updatedMessage.editedAt,
+              }
+            : msg
+        ),
+        starredMessages: state.starredMessages.map((msg) =>
+          String(msg._id) === String(updatedMessage._id)
+            ? {
+                ...msg,
+                text: updatedMessage.text,
+                editedAt: updatedMessage.editedAt,
+              }
+            : msg
+        ),
+        chats: state.chats.map((chat) =>
+          isChatLastMessage(chat, updatedMessage)
+            ? {
+                ...chat,
+                lastMessageText: updatedMessage.text || "",
+              }
+            : chat
+        ),
+      }));
+    });
+
+    socket.on("messageDeleted", (deletedMessage) => {
+      if (!deletedMessage?._id) return;
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          String(msg._id) === String(deletedMessage._id)
+            ? {
+                ...msg,
+                text: "",
+                image: "",
+                images: [],
+                linkPreview: null,
+                deletedAt: deletedMessage.deletedAt,
+                deletedBy: deletedMessage.deletedBy,
+              }
+            : msg
+        ),
+        pinnedMessages: state.pinnedMessages.filter(
+          (msg) => String(msg._id) !== String(deletedMessage._id)
+        ),
+        starredMessages: state.starredMessages.filter(
+          (msg) => String(msg._id) !== String(deletedMessage._id)
+        ),
+        chats: state.chats.map((chat) =>
+          isChatLastMessage(chat, deletedMessage)
+            ? {
+                ...chat,
+                lastMessageText: "Message deleted",
+                lastMessageImage: "",
+                lastMessageImages: [],
+              }
+            : chat
+        ),
+      }));
+    });
+
+    socket.on("messagePinned", (updatedMessage) => {
+      if (!updatedMessage?._id) return;
+      const authUser = useAuthStore.getState().authUser;
+      const isPinnedForMe = updatedMessage.pinnedBy?.some(
+        (id) => String(id) === String(authUser?._id)
+      );
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          String(msg._id) === String(updatedMessage._id)
+            ? { ...msg, pinnedBy: updatedMessage.pinnedBy || [] }
+            : msg
+        ),
+        pinnedMessages: isPinnedForMe
+          ? [
+              updatedMessage,
+              ...state.pinnedMessages.filter(
+                (m) => String(m._id) !== String(updatedMessage._id)
+              ),
+            ]
+          : state.pinnedMessages.filter(
+              (m) => String(m._id) !== String(updatedMessage._id)
+            ),
+      }));
+    });
+
+    socket.on("messageStarred", (updatedMessage) => {
+      if (!updatedMessage?._id) return;
+      const authUser = useAuthStore.getState().authUser;
+      const isStarredForMe = updatedMessage.starredBy?.some(
+        (id) => String(id) === String(authUser?._id)
+      );
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          String(msg._id) === String(updatedMessage._id)
+            ? { ...msg, starredBy: updatedMessage.starredBy || [] }
+            : msg
+        ),
+        starredMessages: isStarredForMe
+          ? [
+              updatedMessage,
+              ...state.starredMessages.filter(
+                (m) => String(m._id) !== String(updatedMessage._id)
+              ),
+            ]
+          : state.starredMessages.filter(
+              (m) => String(m._id) !== String(updatedMessage._id)
+            ),
+      }));
+    });
+
     socket.on("typing:start", ({ fromUserId }) => {
       if (!fromUserId) return;
       set((state) => ({
@@ -531,6 +896,10 @@ export const useChatStore = create((set, get) => ({
     socket.off("typing:start");
     socket.off("typing:stop");
     socket.off("messageReactionUpdate");
+    socket.off("messageUpdated");
+    socket.off("messageDeleted");
+    socket.off("messagePinned");
+    socket.off("messageStarred");
   },
 
   emitTypingStart: (toUserId) => {

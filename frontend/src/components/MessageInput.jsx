@@ -1,15 +1,54 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import useKeyboardSound from "../hooks/useKeyboardSound";
 import { useChatStore } from "../store/useChatStore";
 import toast from "react-hot-toast";
-import { ImageIcon, SendIcon, XIcon } from "lucide-react";
+import {
+  ImageIcon,
+  SendIcon,
+  XIcon,
+  CheckCircle2Icon,
+  AlertTriangleIcon,
+} from "lucide-react";
+import { axiosInstance } from "../lib/axios";
+
+const MAX_ATTACHMENTS = 4;
+const MAX_CONCURRENT_UPLOADS = 2;
+const ATTACHMENTS_STORAGE_PREFIX = "chatify.attachmentsDraft";
+
+const getDraftKey = (userId) =>
+  `${ATTACHMENTS_STORAGE_PREFIX}.${userId || "unknown"}`;
+
+const normalizeStoredAttachment = (item) => {
+  if (!item?.dataUrl && !item?.url) return null;
+  const status =
+    item.status === "uploaded"
+      ? "uploaded"
+      : item.status === "failed"
+      ? "failed"
+      : "pending";
+  return {
+    id: item.id || `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    dataUrl: item.dataUrl || item.url,
+    status,
+    progress: status === "uploaded" ? 100 : 0,
+    url: item.url || null,
+    publicId: item.publicId || null,
+    error: item.error || null,
+  };
+};
 
 function MessageInput() {
   const { playRandomKeyStrokeSound } = useKeyboardSound();
   const [text, setText] = useState("");
-  const [imagePreviews, setImagePreviews] = useState([]);
+  const [attachments, setAttachments] = useState([]);
 
   const fileInputRef = useRef(null);
+  const uploadControllersRef = useRef(new Map());
+  const activeUploadsRef = useRef(0);
+  const scheduleUploadsRef = useRef(null);
+  const attachmentsRef = useRef([]);
+  const dragCounterRef = useRef(0);
+  const [isDragActive, setIsDragActive] = useState(false);
 
   const {
     sendMessage,
@@ -22,7 +61,6 @@ function MessageInput() {
   const { selectedUser } = useChatStore();
   const typingStopTimerRef = useRef(null);
   const lastTypingEmitRef = useRef(0);
-  const MAX_ATTACHMENTS = 4;
 
   useEffect(() => {
     return () => {
@@ -34,6 +72,40 @@ function MessageInput() {
       }
     };
   }, [emitTypingStop, selectedUser?._id]);
+
+  useEffect(() => {
+    return () => {
+      uploadControllersRef.current.forEach((controller) => controller.abort());
+      uploadControllersRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedUser?._id) {
+      setAttachments([]);
+      return;
+    }
+
+    const raw = localStorage.getItem(getDraftKey(selectedUser._id));
+    if (!raw) {
+      setAttachments([]);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        setAttachments([]);
+        return;
+      }
+      const restored = parsed
+        .map(normalizeStoredAttachment)
+        .filter(Boolean);
+      setAttachments(restored);
+    } catch {
+      setAttachments([]);
+    }
+  }, [selectedUser?._id]);
 
   const compressImage = (file) =>
     new Promise((resolve, reject) => {
@@ -69,7 +141,7 @@ function MessageInput() {
     });
 
   const addImages = async (files) => {
-    const available = MAX_ATTACHMENTS - imagePreviews.length;
+    const available = MAX_ATTACHMENTS - attachments.length;
     if (available <= 0) {
       toast.error(`Max ${MAX_ATTACHMENTS} images per message`);
       return;
@@ -91,22 +163,48 @@ function MessageInput() {
       const previews = compressed.map((dataUrl) => ({
         id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         dataUrl,
+        status: "pending",
+        progress: 0,
+        url: null,
+        publicId: null,
+        error: null,
       }));
-      setImagePreviews((prev) => [...prev, ...previews]);
+      setAttachments((prev) => [...prev, ...previews]);
     } catch (error) {
       toast.error("Failed to process images");
       console.log(error);
     }
   };
 
+  const hasPendingUploads = attachments.some(
+    (img) => img.status === "pending" || img.status === "uploading"
+  );
+  const hasFailedUploads = attachments.some((img) => img.status === "failed");
+  const canSend =
+    (text.trim() || attachments.length > 0) &&
+    !hasPendingUploads &&
+    !hasFailedUploads;
+
+  const retryAttachment = (id) => {
+    setAttachments((prev) =>
+      prev.map((img) =>
+        img.id === id
+          ? { ...img, status: "pending", progress: 0, error: null }
+          : img
+      )
+    );
+  };
+
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!text.trim() && imagePreviews.length === 0) return;
+    if (!canSend) return;
     if (isSoundEnabled) playRandomKeyStrokeSound();
 
     sendMessage({
       text: text.trim(),
-      images: imagePreviews.map((img) => img.dataUrl),
+      images: attachments
+        .filter((img) => img.status === "uploaded")
+        .map((img) => img.url),
       replyToMessageId: replyToMessage?._id,
       replyPreview: replyToMessage
         ? {
@@ -124,7 +222,7 @@ function MessageInput() {
       emitTypingStop(selectedUser._id);
     }
     setText("");
-    setImagePreviews([]);
+    setAttachments([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -133,27 +231,179 @@ function MessageInput() {
     addImages(e.target.files);
   };
 
-  const removeImage = (id) => {
-    setImagePreviews((prev) => prev.filter((img) => img.id !== id));
-    if (fileInputRef.current && imagePreviews.length <= 1) {
+  const removeAttachment = async (id) => {
+    const current = attachmentsRef.current.find((item) => item.id === id);
+    if (!current) return;
+
+    if (current.status === "uploading") {
+      const controller = uploadControllersRef.current.get(id);
+      if (controller) controller.abort();
+      setAttachments((prev) => prev.filter((img) => img.id !== id));
+      return;
+    }
+
+    if (current.status === "uploaded" && current.publicId) {
+      try {
+        await axiosInstance.delete("/messages/attachments", {
+          data: { publicId: current.publicId },
+        });
+      } catch (error) {
+        console.log("Failed to delete attachment:", error);
+      }
+    }
+
+    setAttachments((prev) => prev.filter((img) => img.id !== id));
+    if (fileInputRef.current && attachmentsRef.current.length <= 1) {
       fileInputRef.current.value = "";
     }
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragActive(false);
     if (e.dataTransfer?.files?.length) {
       addImages(e.dataTransfer.files);
     }
   };
 
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    if (!isDragActive) setIsDragActive(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      setIsDragActive(false);
+    }
+  };
+
+  const uploadAttachment = useCallback(async (attachment) => {
+    const controller = new AbortController();
+    uploadControllersRef.current.set(attachment.id, controller);
+    setAttachments((prev) =>
+      prev.map((img) =>
+        img.id === attachment.id
+          ? { ...img, status: "uploading", progress: 0, error: null }
+          : img
+      )
+    );
+
+    try {
+      const res = await axiosInstance.post(
+        "/messages/attachments",
+        { image: attachment.dataUrl },
+        {
+          signal: controller.signal,
+          onUploadProgress: (event) => {
+            if (!event.total) return;
+            const percent = Math.round((event.loaded / event.total) * 100);
+            setAttachments((prev) =>
+              prev.map((img) =>
+                img.id === attachment.id
+                  ? { ...img, progress: percent }
+                  : img
+              )
+            );
+          },
+        }
+      );
+
+      setAttachments((prev) =>
+        prev.map((img) =>
+          img.id === attachment.id
+            ? {
+                ...img,
+                status: "uploaded",
+                progress: 100,
+                url: res.data?.url || img.url,
+                publicId: res.data?.publicId || img.publicId,
+              }
+            : img
+        )
+      );
+    } catch (error) {
+      if (error?.code === "ERR_CANCELED") {
+        return;
+      }
+      setAttachments((prev) =>
+        prev.map((img) =>
+          img.id === attachment.id
+            ? { ...img, status: "failed", error: "Upload failed" }
+            : img
+        )
+      );
+    } finally {
+      uploadControllersRef.current.delete(attachment.id);
+    }
+  }, []);
+
+  const scheduleUploads = useCallback(() => {
+    if (activeUploadsRef.current >= MAX_CONCURRENT_UPLOADS) return;
+    const pending = attachmentsRef.current.filter(
+      (img) => img.status === "pending"
+    );
+    if (pending.length === 0) return;
+
+    const availableSlots =
+      MAX_CONCURRENT_UPLOADS - activeUploadsRef.current;
+    pending.slice(0, availableSlots).forEach((attachment) => {
+      activeUploadsRef.current += 1;
+      uploadAttachment(attachment).finally(() => {
+        activeUploadsRef.current -= 1;
+        scheduleUploadsRef.current?.();
+      });
+    });
+  }, [uploadAttachment]);
+
+  useEffect(() => {
+    scheduleUploadsRef.current = scheduleUploads;
+  }, [scheduleUploads]);
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+    scheduleUploads();
+  }, [attachments, scheduleUploads]);
+
+  useEffect(() => {
+    if (!selectedUser?._id) return;
+    const key = getDraftKey(selectedUser._id);
+    const uploaded = attachments.filter((item) => item.status === "uploaded");
+    if (uploaded.length === 0) {
+      localStorage.removeItem(key);
+      return;
+    }
+    const payload = uploaded.map((item) => ({
+      id: item.id,
+      status: "uploaded",
+      url: item.url,
+      publicId: item.publicId,
+    }));
+    try {
+      localStorage.setItem(key, JSON.stringify(payload));
+    } catch (error) {
+      console.log("Failed to persist attachment drafts:", error);
+      localStorage.removeItem(key);
+    }
+  }, [attachments, selectedUser?._id]);
+
   return (
     <div
-      className="p-4 border-t border-slate-700/50"
+      className="relative p-4 border-t border-slate-700/50"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
-      {(replyToMessage || imagePreviews.length > 0) && (
+      {isDragActive && (
+        <div className="absolute inset-2 z-10 rounded-xl border-2 border-dashed border-cyan-400/80 bg-slate-900/70 flex items-center justify-center text-cyan-100 text-sm font-medium">
+          Drop images to attach
+        </div>
+      )}
+      {(replyToMessage || attachments.length > 0) && (
         <div className="max-w-3xl mx-auto mb-3 grid grid-cols-4 gap-2">
           {replyToMessage && (
             <div className="col-span-4 flex items-center justify-between bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300">
@@ -172,15 +422,46 @@ function MessageInput() {
               </button>
             </div>
           )}
-          {imagePreviews.map((img) => (
+          {attachments.map((img) => (
             <div key={img.id} className="relative">
               <img
-                src={img.dataUrl}
+                src={img.dataUrl || img.url}
                 alt="Preview"
                 className="w-full h-20 object-cover rounded-lg border border-slate-700"
               />
+              {img.status === "uploading" || img.status === "pending" ? (
+                <div className="absolute inset-0 bg-slate-900/60 flex flex-col items-center justify-center rounded-lg">
+                  <div className="w-10/12 h-1 bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-cyan-500 transition-all"
+                      style={{ width: `${img.progress}%` }}
+                    />
+                  </div>
+                  <span className="mt-2 text-xs text-slate-200">
+                    {img.status === "pending" ? "Queued" : `${img.progress}%`}
+                  </span>
+                </div>
+              ) : null}
+              {img.status === "failed" ? (
+                <div className="absolute inset-0 bg-slate-900/70 flex flex-col items-center justify-center rounded-lg text-rose-300 text-xs">
+                  <AlertTriangleIcon className="w-4 h-4 mb-1" />
+                  <span>Upload failed</span>
+                  <button
+                    type="button"
+                    onClick={() => retryAttachment(img.id)}
+                    className="mt-2 px-2 py-1 rounded-md bg-rose-500/20 text-rose-200 text-[10px] hover:bg-rose-500/30"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : null}
+              {img.status === "uploaded" ? (
+                <div className="absolute top-1 left-1 bg-slate-900/70 rounded-full p-1">
+                  <CheckCircle2Icon className="w-4 h-4 text-emerald-400" />
+                </div>
+              ) : null}
               <button
-                onClick={() => removeImage(img.id)}
+                onClick={() => removeAttachment(img.id)}
                 className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-slate-200 hover:bg-slate-700"
                 type="button"
               >
@@ -234,14 +515,14 @@ function MessageInput() {
           type="button"
           onClick={() => fileInputRef.current?.click()}
           className={`bg-slate-800/50 text-slate-400 hover:text-slate-200 rounded-lg px-4 transition-colors ${
-            imagePreviews.length > 0 ? "text-cyan-500" : ""
+            attachments.length > 0 ? "text-cyan-500" : ""
           }`}
         >
           <ImageIcon className="w-5 h-5" />
         </button>
         <button
           type="submit"
-          disabled={!text.trim() && imagePreviews.length === 0}
+          disabled={!canSend}
           className="bg-linear-to-r from-cyan-500 to-cyan-600 text-white rounded-lg px-4 py-2 font-medium hover:from-cyan-600 hover:to-cyan-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <SendIcon className="w-5 h-5" />

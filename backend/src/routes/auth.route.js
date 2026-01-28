@@ -5,6 +5,8 @@ import {
   login,
   logout,
   updateProfile,
+  checkUsername,
+  checkAuth,
 } from "../controllers/auth.controller.js";
 import { arcjetProtection } from "../middleware/arcjet.middleware.js";
 
@@ -18,10 +20,10 @@ router.post("/login", login);
 
 router.post("/logout", logout);
 
+router.get("/check-username", checkUsername);
+
 router.put("/update-profile", protectRoute, updateProfile);
 
-router.get("/check", protectRoute, (req, res) =>
-  res.status(200).json(req.user)
-);
+router.get("/check", protectRoute, checkAuth);
 
 export default router;

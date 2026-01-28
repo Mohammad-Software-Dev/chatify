@@ -43,6 +43,24 @@ const messageSchema = new mongoose.Schema(
         },
       },
     ],
+    pinnedBy: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+      ],
+      default: [],
+    },
+    starredBy: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+      ],
+      default: [],
+    },
     editedAt: {
       type: Date,
     },
@@ -84,6 +102,7 @@ const messageSchema = new mongoose.Schema(
 messageSchema.index({ senderId: 1, receiverId: 1, createdAt: -1 });
 messageSchema.index({ receiverId: 1, senderId: 1, createdAt: -1 });
 messageSchema.index({ receiverId: 1, status: 1, createdAt: -1 });
+messageSchema.index({ text: "text" });
 
 const Message = mongoose.model("Message", messageSchema);
 

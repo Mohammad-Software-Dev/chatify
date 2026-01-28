@@ -54,6 +54,17 @@ const fetchLinkPreview = async (url) => {
   }
 };
 
+const isParticipant = (message, userId) => {
+  if (!message) return false;
+  const id = userId.toString();
+  return (
+    message.senderId.toString() === id || message.receiverId.toString() === id
+  );
+};
+
+const escapeRegex = (value) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export const getAllContacts = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
@@ -118,7 +129,7 @@ export const getMessagesByUserId = async (req, res) => {
 
     const messages = await Message.find(query)
       .select(
-        "senderId receiverId text image images replyToMessageId reactions editedAt deletedAt deletedBy linkPreview createdAt status sentAt deliveredAt readAt updatedAt"
+        "senderId receiverId text image images replyToMessageId reactions pinnedBy starredBy editedAt deletedAt deletedBy linkPreview createdAt status sentAt deliveredAt readAt updatedAt"
       )
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit)
@@ -217,6 +228,31 @@ export const getMessagesByUserId = async (req, res) => {
   }
 };
 
+export const getMessageById = async (req, res) => {
+  try {
+    const { id: messageId } = req.params;
+    const myId = req.user._id;
+
+    const message = await Message.findById(messageId)
+      .select(
+        "senderId receiverId text image images replyToMessageId reactions pinnedBy starredBy editedAt deletedAt deletedBy linkPreview createdAt status sentAt deliveredAt readAt updatedAt"
+      )
+      .lean();
+    if (!message) return res.status(404).json({ message: "Message not found" });
+    if (
+      message.senderId.toString() !== myId.toString() &&
+      message.receiverId.toString() !== myId.toString()
+    ) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+
+    res.status(200).json(message);
+  } catch (error) {
+    console.error("Error in getMessageById:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 export const sendMessage = async (req, res) => {
   try {
     const { text, image, images, clientMessageId, replyToMessageId } = req.body;
@@ -245,11 +281,22 @@ export const sendMessage = async (req, res) => {
     let imageUrl;
     let imageUrls = [];
     if (imagesArray.length > 0) {
-      // upload base64 images to cloudinary
-      const uploads = await Promise.all(
-        imagesArray.map((img) => cloudinary.uploader.upload(img))
+      const existingUrls = imagesArray.filter(
+        (img) => typeof img === "string" && /^https?:\/\//i.test(img)
       );
-      imageUrls = uploads.map((upload) => upload.secure_url);
+      const uploadCandidates = imagesArray.filter(
+        (img) => typeof img === "string" && !/^https?:\/\//i.test(img)
+      );
+
+      if (uploadCandidates.length > 0) {
+        // upload base64 images to cloudinary
+        const uploads = await Promise.all(
+          uploadCandidates.map((img) => cloudinary.uploader.upload(img))
+        );
+        imageUrls = uploads.map((upload) => upload.secure_url);
+      }
+
+      imageUrls = [...existingUrls, ...imageUrls];
       imageUrl = imageUrls[0];
     }
 
@@ -406,6 +453,332 @@ export const addReaction = async (req, res) => {
     res.status(200).json({ reactions });
   } catch (error) {
     console.error("Error in addReaction:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const searchMessages = async (req, res) => {
+  try {
+    const myId = req.user._id;
+    const { id: userToChatId } = req.params;
+    const queryText = req.query.q?.trim();
+    if (!queryText) return res.status(200).json([]);
+
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+    const regex = new RegExp(escapeRegex(queryText), "i");
+
+    const query = {
+      $and: [
+        {
+          $or: [
+            { senderId: myId, receiverId: userToChatId },
+            { senderId: userToChatId, receiverId: myId },
+          ],
+        },
+        { text: { $regex: regex } },
+        { $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }] },
+      ],
+    };
+
+    const results = await Message.find(query)
+      .select(
+        "senderId receiverId text image images pinnedBy starredBy createdAt sentAt updatedAt"
+      )
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit)
+      .lean();
+
+    res.status(200).json(results);
+  } catch (error) {
+    console.error("Error in searchMessages:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const getPinnedMessages = async (req, res) => {
+  try {
+    const myId = req.user._id;
+    const { id: userToChatId } = req.params;
+
+    const results = await Message.find({
+      $and: [
+        {
+          $or: [
+            { senderId: myId, receiverId: userToChatId },
+            { senderId: userToChatId, receiverId: myId },
+          ],
+        },
+        { pinnedBy: myId },
+        { $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }] },
+      ],
+    })
+      .select(
+        "senderId receiverId text image images pinnedBy starredBy createdAt sentAt updatedAt"
+      )
+      .sort({ createdAt: -1, _id: -1 })
+      .lean();
+
+    res.status(200).json(results);
+  } catch (error) {
+    console.error("Error in getPinnedMessages:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const getStarredMessages = async (req, res) => {
+  try {
+    const myId = req.user._id;
+    const { id: userToChatId } = req.params;
+
+    const results = await Message.find({
+      $and: [
+        {
+          $or: [
+            { senderId: myId, receiverId: userToChatId },
+            { senderId: userToChatId, receiverId: myId },
+          ],
+        },
+        { starredBy: myId },
+        { $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }] },
+      ],
+    })
+      .select(
+        "senderId receiverId text image images pinnedBy starredBy createdAt sentAt updatedAt"
+      )
+      .sort({ createdAt: -1, _id: -1 })
+      .lean();
+
+    res.status(200).json(results);
+  } catch (error) {
+    console.error("Error in getStarredMessages:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const togglePin = async (req, res) => {
+  try {
+    const { id: messageId } = req.params;
+    const { pin } = req.body || {};
+    const message = await Message.findById(messageId);
+    if (!message) return res.status(404).json({ message: "Message not found" });
+    if (!isParticipant(message, req.user._id)) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+    if (message.deletedAt) {
+      return res.status(400).json({ message: "Message deleted" });
+    }
+
+    const shouldPin =
+      typeof pin === "boolean"
+        ? pin
+        : !message.pinnedBy.some(
+            (id) => id.toString() === req.user._id.toString()
+          );
+
+    const update = shouldPin
+      ? { $addToSet: { pinnedBy: req.user._id } }
+      : { $pull: { pinnedBy: req.user._id } };
+
+    const updated = await Message.findByIdAndUpdate(messageId, update, {
+      new: true,
+    }).lean();
+
+    const receiverSocketIds = getReceiverSocketIds(
+      message.receiverId.toString()
+    );
+    const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
+    [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
+      io.to(socketId).emit("messagePinned", updated);
+    });
+
+    res.status(200).json(updated);
+  } catch (error) {
+    console.error("Error in togglePin:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const toggleStar = async (req, res) => {
+  try {
+    const { id: messageId } = req.params;
+    const { star } = req.body || {};
+    const message = await Message.findById(messageId);
+    if (!message) return res.status(404).json({ message: "Message not found" });
+    if (!isParticipant(message, req.user._id)) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+    if (message.deletedAt) {
+      return res.status(400).json({ message: "Message deleted" });
+    }
+
+    const shouldStar =
+      typeof star === "boolean"
+        ? star
+        : !message.starredBy.some(
+            (id) => id.toString() === req.user._id.toString()
+          );
+
+    const update = shouldStar
+      ? { $addToSet: { starredBy: req.user._id } }
+      : { $pull: { starredBy: req.user._id } };
+
+    const updated = await Message.findByIdAndUpdate(messageId, update, {
+      new: true,
+    }).lean();
+
+    const receiverSocketIds = getReceiverSocketIds(
+      message.receiverId.toString()
+    );
+    const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
+    [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
+      io.to(socketId).emit("messageStarred", updated);
+    });
+
+    res.status(200).json(updated);
+  } catch (error) {
+    console.error("Error in toggleStar:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+const updateConversationIfLatest = async (message, updates) => {
+  const conversationKey = getConversationKey(
+    message.senderId,
+    message.receiverId
+  );
+  const latest = await Message.findOne({
+    $or: [
+      { senderId: message.senderId, receiverId: message.receiverId },
+      { senderId: message.receiverId, receiverId: message.senderId },
+    ],
+  })
+    .sort({ createdAt: -1, _id: -1 })
+    .select("_id")
+    .lean();
+
+  if (!latest || latest._id.toString() !== message._id.toString()) return;
+
+  await Conversation.updateOne(
+    { participantsKey: conversationKey },
+    { $set: updates }
+  );
+};
+
+export const editMessage = async (req, res) => {
+  try {
+    const { id: messageId } = req.params;
+    const { text } = req.body;
+    const trimmed = text?.trim();
+    if (!trimmed) {
+      return res.status(400).json({ message: "Text is required." });
+    }
+
+    const message = await Message.findById(messageId);
+    if (!message) return res.status(404).json({ message: "Message not found" });
+    if (message.senderId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+    if (message.deletedAt) {
+      return res.status(400).json({ message: "Message already deleted" });
+    }
+
+    if (message.text === trimmed) {
+      return res.status(200).json(message);
+    }
+
+    message.text = trimmed;
+    message.editedAt = new Date();
+    await message.save();
+
+    await updateConversationIfLatest(message, {
+      lastMessageText: trimmed,
+    });
+
+    const receiverSocketIds = getReceiverSocketIds(
+      message.receiverId.toString()
+    );
+    const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
+    [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
+      io.to(socketId).emit("messageUpdated", message.toObject());
+    });
+
+    res.status(200).json(message);
+  } catch (error) {
+    console.error("Error in editMessage:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const deleteMessage = async (req, res) => {
+  try {
+    const { id: messageId } = req.params;
+    const message = await Message.findById(messageId);
+    if (!message) return res.status(404).json({ message: "Message not found" });
+    if (message.senderId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+    if (message.deletedAt) {
+      return res.status(200).json(message);
+    }
+
+    message.deletedAt = new Date();
+    message.deletedBy = req.user._id;
+    message.text = "";
+    message.image = "";
+    message.images = [];
+    message.linkPreview = null;
+    await message.save();
+
+    await updateConversationIfLatest(message, {
+      lastMessageText: "Message deleted",
+      lastMessageImage: "",
+      lastMessageImages: [],
+    });
+
+    const receiverSocketIds = getReceiverSocketIds(
+      message.receiverId.toString()
+    );
+    const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
+    [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
+      io.to(socketId).emit("messageDeleted", message.toObject());
+    });
+
+    res.status(200).json(message);
+  } catch (error) {
+    console.error("Error in deleteMessage:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const uploadAttachment = async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ message: "Image is required." });
+    }
+
+    const upload = await cloudinary.uploader.upload(image);
+    return res.status(201).json({
+      url: upload.secure_url,
+      publicId: upload.public_id,
+    });
+  } catch (error) {
+    console.log("Error in uploadAttachment controller: ", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const deleteAttachment = async (req, res) => {
+  try {
+    const { publicId } = req.body;
+    if (!publicId) {
+      return res.status(400).json({ message: "publicId is required." });
+    }
+
+    const result = await cloudinary.uploader.destroy(publicId);
+    res.status(200).json({ result: result?.result || "unknown" });
+  } catch (error) {
+    console.log("Error in deleteAttachment controller: ", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };

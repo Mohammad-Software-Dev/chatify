@@ -7,20 +7,85 @@ import {
   MailIcon,
   UserIcon,
   LoaderIcon,
+  CheckCircle2Icon,
+  XCircleIcon,
 } from "lucide-react";
 import { Link } from "react-router";
+import { axiosInstance } from "../lib/axios";
+
+const createDefaultUsername = () =>
+  `user_${Math.floor(1000 + Math.random() * 9000)}`;
 
 function SignUpPage() {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState(() => ({
     fullName: "",
     email: "",
     password: "",
-  });
+    username: createDefaultUsername(),
+  }));
+  const [usernameStatus, setUsernameStatus] = useState("unchecked");
+  const [usernameMessage, setUsernameMessage] = useState("");
+  const [usernameSuggestions, setUsernameSuggestions] = useState([]);
+  const [checkedUsername, setCheckedUsername] = useState("");
+  const [isCheckingUsername, setIsCheckingUsername] = useState(false);
   const { signup, isSigningUp } = useAuthStore();
 
   const handleSubmit = (e) => {
     e.preventDefault();
     signup(formData);
+  };
+
+  const handleUsernameChange = (value) => {
+    setFormData({ ...formData, username: value });
+    setUsernameStatus("unchecked");
+    setUsernameMessage("");
+    setUsernameSuggestions([]);
+    setCheckedUsername("");
+  };
+
+  const handleCheckUsername = async () => {
+    const rawUsername = formData.username?.trim();
+    if (!rawUsername) {
+      setUsernameStatus("error");
+      setUsernameMessage("Username is required");
+      setUsernameSuggestions([]);
+      return;
+    }
+
+    try {
+      setIsCheckingUsername(true);
+      const res = await axiosInstance.get(
+        `/auth/check-username?username=${encodeURIComponent(rawUsername)}`
+      );
+
+      if (res.data?.normalizedUsername) {
+        setFormData((prev) => ({
+          ...prev,
+          username: res.data.normalizedUsername,
+        }));
+      }
+
+      if (res.data?.available) {
+        setUsernameStatus("available");
+        setUsernameMessage("This name is available.");
+        setUsernameSuggestions([]);
+        setCheckedUsername(res.data.normalizedUsername || rawUsername);
+      } else {
+        setUsernameStatus("taken");
+        setUsernameMessage("This username is already taken.");
+        setUsernameSuggestions(res.data?.suggestions || []);
+        setCheckedUsername("");
+      }
+    } catch (error) {
+      setUsernameStatus("error");
+      setUsernameMessage(
+        error.response?.data?.message || "Unable to check username"
+      );
+      setUsernameSuggestions([]);
+      setCheckedUsername("");
+    } finally {
+      setIsCheckingUsername(false);
+    }
   };
 
   return (
@@ -58,6 +123,77 @@ function SignUpPage() {
                         placeholder="John Doe"
                       />
                     </div>
+                  </div>
+
+                  {/* USERNAME */}
+                  <div>
+                    <label className="auth-input-label">
+                      Username
+                      <span className="block text-xs text-slate-400 font-normal mt-1">
+                        This should be unique and can be used to identify you.
+                      </span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <UserIcon className="auth-input-icon" />
+
+                        <input
+                          type="text"
+                          value={formData.username}
+                          onChange={(e) => handleUsernameChange(e.target.value)}
+                          className="input"
+                          placeholder="user_1234"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCheckUsername}
+                          disabled={
+                            isCheckingUsername || !formData.username?.trim()
+                          }
+                          className="bg-cyan-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-cyan-600 focus:ring-2 focus:ring-cyan-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {isCheckingUsername ? "Checking..." : "Check"}
+                        </button>
+                        {usernameStatus === "available" ? (
+                          <CheckCircle2Icon className="w-5 h-5 text-emerald-400" />
+                        ) : null}
+                        {usernameStatus === "taken" ||
+                        usernameStatus === "error" ? (
+                          <XCircleIcon className="w-5 h-5 text-rose-400" />
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {usernameMessage ? (
+                      <p
+                        className={`text-sm mt-2 ${
+                          usernameStatus === "available"
+                            ? "text-emerald-400"
+                            : "text-rose-400"
+                        }`}
+                      >
+                        {usernameMessage}
+                      </p>
+                    ) : null}
+
+                    {usernameStatus === "taken" &&
+                    usernameSuggestions.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {usernameSuggestions.map((suggestion) => (
+                          <button
+                            key={suggestion}
+                            type="button"
+                            onClick={() => handleUsernameChange(suggestion)}
+                            className="auth-badge text-xs"
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
 
                   {/* EMAIL INPUT */}
@@ -100,7 +236,11 @@ function SignUpPage() {
                   <button
                     className="auth-btn"
                     type="submit"
-                    disabled={isSigningUp}
+                    disabled={
+                      isSigningUp ||
+                      usernameStatus !== "available" ||
+                      checkedUsername !== formData.username?.trim()
+                    }
                   >
                     {isSigningUp ? (
                       <LoaderIcon className="w-full h-5 animate-spin text-center" />

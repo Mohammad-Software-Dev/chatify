@@ -5,7 +5,8 @@ import ChatHeader from "./ChatHeader";
 import NoChatHistoryPlaceholder from "./NoChatHistoryPlaceholder";
 import MessageInput from "./MessageInput";
 import MessagesLoadingSkeleton from "./MessagesLoadingSkeleton";
-import { Check, CheckCheck } from "lucide-react";
+import { Check, CheckCheck, PinIcon, SearchIcon, StarIcon, XIcon } from "lucide-react";
+import toast from "react-hot-toast";
 
 function ChatContainer() {
   const {
@@ -19,6 +20,19 @@ function ChatContainer() {
     typingByUserId,
     setReplyToMessage,
     addReaction,
+    editMessage,
+    deleteMessage,
+    searchMessages,
+    clearSearchResults,
+    searchResults,
+    isSearching,
+    pinnedMessages,
+    starredMessages,
+    loadPinnedMessages,
+    loadStarredMessages,
+    togglePin,
+    toggleStar,
+    fetchMessageById,
   } = useChatStore();
   const { authUser } = useAuthStore();
   const messagesContainerRef = useRef(null);
@@ -32,6 +46,10 @@ function ChatContainer() {
   const longPressTimerRef = useRef(null);
   const [highlightMessageId, setHighlightMessageId] = useState(null);
   const messageRefs = useRef(new Map());
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editingText, setEditingText] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState("all");
 
   const getMessageTime = (msg) =>
     msg?.createdAt || msg?.sentAt || msg?.updatedAt || msg?.deliveredAt || null;
@@ -48,7 +66,10 @@ function ChatContainer() {
     getMessagesByUserId(selectedUser._id);
     setRenderLimit(60);
     hasInitialScrollRef.current = false;
-  }, [selectedUser, getMessagesByUserId]);
+    setSearchQuery("");
+    setViewMode("all");
+    clearSearchResults();
+  }, [selectedUser, getMessagesByUserId, clearSearchResults]);
 
   useEffect(() => {
     return () => {
@@ -57,6 +78,29 @@ function ChatContainer() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      clearSearchResults();
+      if (viewMode === "search") {
+        setViewMode("all");
+      }
+      return;
+    }
+    const timer = setTimeout(() => {
+      searchMessages(selectedUser._id, searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, searchMessages, selectedUser._id, clearSearchResults, viewMode]);
+
+  useEffect(() => {
+    if (!editingMessageId) return;
+    const message = messages.find((msg) => msg._id === editingMessageId);
+    if (message && message.deletedAt) {
+      setEditingMessageId(null);
+      setEditingText("");
+    }
+  }, [editingMessageId, messages]);
 
   useLayoutEffect(() => {
     if (isPrependingRef.current) return;
@@ -165,9 +209,27 @@ function ChatContainer() {
     }
   };
 
-  const scrollToMessage = (messageId) => {
+  const scrollToMessage = async (messageId) => {
     const node = messageRefs.current.get(messageId);
-    if (!node) return;
+    if (!node) {
+      const fetched = await fetchMessageById(messageId);
+      if (!fetched) return;
+      requestAnimationFrame(() => {
+        const target = messageRefs.current.get(messageId);
+        if (!target) {
+          toast.error("Message not loaded yet");
+          return;
+        }
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        setHighlightMessageId(messageId);
+        setTimeout(() => {
+          setHighlightMessageId((current) =>
+            current === messageId ? null : current
+          );
+        }, 1200);
+      });
+      return;
+    }
     node.scrollIntoView({ behavior: "smooth", block: "center" });
     setHighlightMessageId(messageId);
     setTimeout(() => {
@@ -177,9 +239,134 @@ function ChatContainer() {
     }, 1200);
   };
 
+  const openPinnedView = () => {
+    setViewMode((current) => (current === "pinned" ? "all" : "pinned"));
+    loadPinnedMessages(selectedUser._id);
+  };
+
+  const openStarredView = () => {
+    setViewMode((current) => (current === "starred" ? "all" : "starred"));
+    loadStarredMessages(selectedUser._id);
+  };
+
+  const isPinnedByMe = (msg) =>
+    Array.isArray(msg.pinnedBy) &&
+    msg.pinnedBy.some((id) => String(id) === String(authUser._id));
+
+  const isStarredByMe = (msg) =>
+    Array.isArray(msg.starredBy) &&
+    msg.starredBy.some((id) => String(id) === String(authUser._id));
+
   return (
     <>
       <ChatHeader />
+      <div className="border-b border-slate-700/50 bg-slate-900/40 px-6 py-3">
+        <div className="max-w-3xl mx-auto flex items-center gap-3">
+          <div className="relative flex-1">
+            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 size-4" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                if (e.target.value.trim()) {
+                  setViewMode("search");
+                }
+              }}
+              placeholder="Search messages"
+              className="w-full bg-slate-800/50 border border-slate-700 rounded-lg py-2 pl-9 pr-9 text-slate-200 placeholder-slate-500 text-sm"
+            />
+            {searchQuery ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setViewMode("all");
+                  clearSearchResults();
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+              >
+                <XIcon className="size-4" />
+              </button>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={openPinnedView}
+            className={`px-3 py-2 rounded-lg text-sm border ${
+              viewMode === "pinned"
+                ? "border-cyan-400 text-cyan-200 bg-cyan-500/10"
+                : "border-slate-700 text-slate-300 bg-slate-800/40"
+            }`}
+          >
+            Pinned
+          </button>
+          <button
+            type="button"
+            onClick={openStarredView}
+            className={`px-3 py-2 rounded-lg text-sm border ${
+              viewMode === "starred"
+                ? "border-amber-300 text-amber-200 bg-amber-400/10"
+                : "border-slate-700 text-slate-300 bg-slate-800/40"
+            }`}
+          >
+            Starred
+          </button>
+        </div>
+      </div>
+      {viewMode !== "all" && (
+        <div className="border-b border-slate-700/50 bg-slate-900/30 px-6 py-3">
+          <div className="max-w-3xl mx-auto space-y-2 max-h-64 overflow-y-auto pr-1">
+            {viewMode === "search" && isSearching && (
+              <div className="text-xs text-slate-400">Searching...</div>
+            )}
+            {(() => {
+              const results =
+                viewMode === "search"
+                  ? searchResults
+                  : viewMode === "pinned"
+                  ? pinnedMessages
+                  : starredMessages;
+              if (!results.length) {
+                return (
+                  <div className="text-xs text-slate-400">
+                    No messages found.
+                  </div>
+                );
+              }
+              return (
+                <div className="space-y-2">
+                  {results.map((msg) => (
+                    <button
+                      key={msg._id}
+                      type="button"
+                      onClick={() => scrollToMessage(msg._id)}
+                      className="w-full text-left rounded-lg border border-slate-700/60 bg-slate-800/40 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800/60"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate">
+                          {msg.text ||
+                            (msg.images?.length > 0 || msg.image
+                              ? "Image"
+                              : "Message")}
+                        </span>
+                        <span className="text-[11px] text-slate-400">
+                          {new Date(
+                            getMessageTime(msg) || Date.now()
+                          ).toLocaleTimeString(undefined, {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
@@ -315,8 +502,59 @@ function ChatContainer() {
                           );
                         })()
                       )}
-                      {!isDeleted && msg.text && (
-                        <p className="mt-2">{msg.text}</p>
+                      {!isDeleted && (
+                        <>
+                          {editingMessageId === msg._id ? (
+                            <div
+                              className="mt-2 space-y-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <input
+                                type="text"
+                                value={editingText}
+                                onChange={(e) =>
+                                  setEditingText(e.target.value)
+                                }
+                                className="w-full rounded-md bg-slate-900/40 border border-slate-700/60 px-2 py-1 text-slate-100 text-sm"
+                              />
+                              <div className="flex items-center gap-2 text-xs">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const trimmed = editingText.trim();
+                                    if (!trimmed) {
+                                      toast.error("Message cannot be empty");
+                                      return;
+                                    }
+                                    const ok = await editMessage(
+                                      msg._id,
+                                      trimmed
+                                    );
+                                    if (ok) {
+                                      setEditingMessageId(null);
+                                      setEditingText("");
+                                    }
+                                  }}
+                                  className="px-2 py-1 rounded-md bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingMessageId(null);
+                                    setEditingText("");
+                                  }}
+                                  className="px-2 py-1 rounded-md bg-slate-800/60 text-slate-200 hover:bg-slate-800"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : msg.text ? (
+                            <p className="mt-2">{msg.text}</p>
+                          ) : null}
+                        </>
                       )}
                       {!isDeleted && msg.linkPreview && (
                         <a
@@ -375,6 +613,17 @@ function ChatContainer() {
                             minute: "2-digit",
                           })}
                         </span>
+                        {!isDeleted && isPinnedByMe(msg) && (
+                          <PinIcon className="w-3.5 h-3.5 text-cyan-200" />
+                        )}
+                        {!isDeleted && isStarredByMe(msg) && (
+                          <StarIcon className="w-3.5 h-3.5 text-amber-200" />
+                        )}
+                        {!isDeleted && msg.editedAt && (
+                          <span className="text-[11px] text-slate-200/70">
+                            Edited
+                          </span>
+                        )}
                       {!isDeleted && (
                         <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 ml-2">
                           <button
@@ -387,6 +636,77 @@ function ChatContainer() {
                             className="text-slate-200/80 hover:text-white"
                           >
                               Reply
+                            </button>
+                            {msg.senderId === authUser._id && msg.text && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingMessageId(msg._id);
+                                  setEditingText(msg.text || "");
+                                }}
+                                className="text-slate-200/80 hover:text-white"
+                              >
+                                Edit
+                              </button>
+                            )}
+                            {msg.senderId === authUser._id && (
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const ok = window.confirm(
+                                    "Delete this message?"
+                                  );
+                                  if (!ok) return;
+                                  const deleted = await deleteMessage(msg._id);
+                                  if (deleted) {
+                                    setEditingMessageId(null);
+                                    setEditingText("");
+                                  }
+                                }}
+                                className="text-rose-200/80 hover:text-rose-100"
+                              >
+                                Delete
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                togglePin(msg._id);
+                              }}
+                              className={`transition-colors ${
+                                isPinnedByMe(msg)
+                                  ? "text-cyan-200"
+                                  : "text-slate-200/70 hover:text-white"
+                              }`}
+                              title={isPinnedByMe(msg) ? "Unpin" : "Pin"}
+                            >
+                              <PinIcon
+                                className={`w-4 h-4 ${
+                                  isPinnedByMe(msg) ? "fill-current" : ""
+                                }`}
+                              />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleStar(msg._id);
+                              }}
+                              className={`transition-colors ${
+                                isStarredByMe(msg)
+                                  ? "text-amber-200"
+                                  : "text-slate-200/70 hover:text-white"
+                              }`}
+                              title={isStarredByMe(msg) ? "Unstar" : "Star"}
+                            >
+                              <StarIcon
+                                className={`w-4 h-4 ${
+                                  isStarredByMe(msg) ? "fill-current" : ""
+                                }`}
+                              />
                             </button>
                             <button
                               type="button"

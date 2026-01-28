@@ -3,6 +3,15 @@ import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
 
+const resetChatStore = async () => {
+  try {
+    const { useChatStore } = await import("./useChatStore");
+    useChatStore.getState().resetForLogout();
+  } catch (error) {
+    console.log("Error resetting chat state:", error);
+  }
+};
+
 const BASE_URL =
   import.meta.env.MODE === "development" ? "http://localhost:3000" : "/";
 
@@ -24,6 +33,7 @@ export const useAuthStore = create((set, get) => ({
     } catch (error) {
       console.log("Error in authCheck:", error);
       set({ authUser: null });
+      await resetChatStore();
     } finally {
       set({ isCheckingAuth: false });
     }
@@ -66,6 +76,7 @@ export const useAuthStore = create((set, get) => ({
       set({ authUser: null });
       toast.success("Logged out successfully");
       get().disconnectSocket();
+      await resetChatStore();
     } catch (error) {
       toast.error("Error logging out");
       console.log("Logout error:", error);

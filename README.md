@@ -4,16 +4,19 @@ A real-time chat app with a React frontend and an Express + Socket.IO backend.
 
 ## Features
 - Email/password authentication with JWT http-only cookies
+- Unique usernames with availability check
 - Real-time messaging with Socket.IO
 - Message delivery states: sent, delivered, read
 - Read receipt timestamps per message (tap/click to view)
+- Edit and delete own messages
+- Message search + pinned/starred messages
 - Typing indicators (header + typing bubble)
 - Online users presence
 - Active now + last seen presence (server persisted)
 - Chat list with last message preview and unread counts
 - Pagination: load latest 20 messages and fetch older on scroll
 - Image uploads via Cloudinary (multi-attach, drag-drop, previews, compression)
-- Upload progress indicators per image
+- Per-file upload queue with progress, cancel, retry, and draft persistence
 - Offline queue with retries and exponential backoff
 - Optimistic UI with server reconciliation
 - Replies with jump-to-message highlight
