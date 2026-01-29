@@ -4,6 +4,12 @@ import { ENV } from "../lib/env.js";
 
 export const socketAuthMiddleware = async (socket, next) => {
   try {
+    const origin = socket.handshake.headers.origin;
+    if (ENV.NODE_ENV === "production" && origin && origin !== ENV.CLIENT_URL) {
+      console.log("Socket connection rejected: Invalid origin", origin);
+      return next(new Error("Unauthorized - Invalid Origin"));
+    }
+
     // extract token from http-only cookies
     const token = socket.handshake.headers.cookie
       ?.split("; ")

@@ -9,20 +9,33 @@ import {
   checkAuth,
 } from "../controllers/auth.controller.js";
 import { arcjetProtection } from "../middleware/arcjet.middleware.js";
+import { authLimiter } from "../middleware/rate-limit.middleware.js";
+import { validate } from "../middleware/validate.middleware.js";
+import {
+  signupSchema,
+  loginSchema,
+  checkUsernameSchema,
+  updateProfileSchema,
+} from "../validators/index.js";
 
 const router = express.Router();
 
-router.use(arcjetProtection);
+router.use(arcjetProtection, authLimiter);
 
-router.post("/signup", signup);
+router.post("/signup", validate(signupSchema), signup);
 
-router.post("/login", login);
+router.post("/login", validate(loginSchema), login);
 
 router.post("/logout", logout);
 
-router.get("/check-username", checkUsername);
+router.get("/check-username", validate(checkUsernameSchema), checkUsername);
 
-router.put("/update-profile", protectRoute, updateProfile);
+router.put(
+  "/update-profile",
+  protectRoute,
+  validate(updateProfileSchema),
+  updateProfile
+);
 
 router.get("/check", protectRoute, checkAuth);
 

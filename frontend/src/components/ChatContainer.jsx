@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 import ChatHeader from "./ChatHeader";
@@ -379,13 +379,13 @@ function ChatContainer() {
                 Loading older messages...
               </div>
             )}
-            {messages
-              .slice(
+            {useMemo(() => {
+              const startIndex =
                 hasMoreMessages && messages.length > renderLimit
                   ? messages.length - renderLimit
-                  : 0
-              )
-              .map((msg) => {
+                  : 0;
+              return messages.slice(startIndex);
+            }, [messages, hasMoreMessages, renderLimit]).map((msg) => {
                 const status = msg.status || "sent";
                 const isDeleted = Boolean(msg.deletedAt);
                 const reactions = Array.isArray(msg.reactions)
@@ -827,4 +827,4 @@ function ChatContainer() {
   );
 }
 
-export default ChatContainer;
+export default memo(ChatContainer);

@@ -69,7 +69,7 @@ export const getAllContacts = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
     const query = req.query.username?.trim().toLowerCase();
-    if (!query) {
+    if (!query || query.length < 3) {
       return res.status(200).json([]);
     }
 
