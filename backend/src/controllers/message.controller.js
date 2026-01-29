@@ -68,9 +68,31 @@ const escapeRegex = (value) =>
 export const getAllContacts = async (req, res) => {
   try {
     const loggedInUserId = req.user._id;
-    const filteredUsers = await User.find({
+    const query = req.query.username?.trim().toLowerCase();
+    if (!query) {
+      return res.status(200).json([]);
+    }
+
+    const exactMatch = await User.findOne({
       _id: { $ne: loggedInUserId },
-    }).select("-password");
+      username: query,
+    })
+      .select("-password")
+      .lean();
+
+    const remainingLimit = exactMatch ? 19 : 20;
+    const partialUsers = await User.find({
+      _id: { $ne: loggedInUserId },
+      username: { $regex: new RegExp(escapeRegex(query), "i") },
+      ...(exactMatch ? { _id: { $ne: exactMatch._id } } : {}),
+    })
+      .select("-password")
+      .limit(remainingLimit)
+      .lean();
+
+    const filteredUsers = exactMatch
+      ? [exactMatch, ...partialUsers]
+      : partialUsers;
 
     res.status(200).json(filteredUsers);
   } catch (error) {

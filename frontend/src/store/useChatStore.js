@@ -137,10 +137,17 @@ export const useChatStore = create((set, get) => ({
         : state.chats,
     })),
 
-  getAllContacts: async () => {
+  getAllContacts: async (username) => {
     set({ isUsersLoading: true });
     try {
-      const res = await axiosInstance.get("/messages/contacts");
+      const query = username?.trim();
+      if (!query) {
+        set({ allContacts: [] });
+        return;
+      }
+      const res = await axiosInstance.get(
+        `/messages/contacts?username=${encodeURIComponent(query)}`
+      );
       set({ allContacts: res.data });
     } catch (error) {
       toast.error(error.response.data.message);

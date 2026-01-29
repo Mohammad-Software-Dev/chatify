@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
 import UsersLoadingSkeleton from "./UsersLoadingSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
+import { SearchIcon, XIcon } from "lucide-react";
 
 function ContactList() {
   const {
@@ -12,15 +13,49 @@ function ContactList() {
     unreadByUserId,
   } = useChatStore();
   const { onlineUsers } = useAuthStore();
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
-    getAllContacts();
-  }, [getAllContacts]);
+    const timer = setTimeout(() => {
+      getAllContacts(query);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [getAllContacts, query]);
 
   if (isUsersLoading) return <UsersLoadingSkeleton />;
 
   return (
     <>
+      <div className="mb-4">
+        <label className="auth-input-label">Search by username</label>
+        <div className="relative">
+          <SearchIcon className="auth-input-icon" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="input"
+            placeholder="Type a username..."
+          />
+          {query ? (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+            >
+              <XIcon className="w-4 h-4" />
+            </button>
+          ) : null}
+        </div>
+        <p className="text-xs text-slate-400 mt-2">
+          Enter a username to find people to chat with.
+        </p>
+      </div>
+      {query.trim().length === 0 && (
+        <div className="text-sm text-slate-400">
+          Start typing a username to see results.
+        </div>
+      )}
       {allContacts.map((contact) => (
         <div
           key={contact._id}
@@ -41,6 +76,9 @@ function ContactList() {
               <h4 className="text-slate-200 font-medium truncate">
                 {contact.fullName}
               </h4>
+              <p className="text-xs text-slate-400 truncate">
+                @{contact.username}
+              </p>
             </div>
             {unreadByUserId[contact._id] > 0 && (
               <span className="text-xs font-semibold bg-cyan-500 text-slate-900 px-2 py-0.5 rounded-full">
@@ -50,6 +88,9 @@ function ContactList() {
           </div>
         </div>
       ))}
+      {query.trim().length > 0 && allContacts.length === 0 && !isUsersLoading && (
+        <div className="text-sm text-slate-400">No users found.</div>
+      )}
     </>
   );
 }
