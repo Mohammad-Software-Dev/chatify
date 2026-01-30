@@ -774,6 +774,19 @@ export const useChatStore = create((set, get) => ({
         const currentMessages = get().messages;
         set({ messages: sortMessages([...currentMessages, newMessage]) });
         get().markMessagesAsRead(selectedUserId);
+        if (typingTimeouts.has(newMessage.senderId)) {
+          clearTimeout(typingTimeouts.get(newMessage.senderId));
+          typingTimeouts.delete(newMessage.senderId);
+        }
+        set((state) => {
+          if (!state.typingByUserId[newMessage.senderId]) return state;
+          return {
+            typingByUserId: {
+              ...state.typingByUserId,
+              [newMessage.senderId]: false,
+            },
+          };
+        });
         set((state) => {
           const updatedChats = state.chats.map((chat) =>
             chat._id === newMessage.senderId
@@ -1019,12 +1032,16 @@ export const useChatStore = create((set, get) => ({
         clearTimeout(typingTimeouts.get(fromUserId));
         typingTimeouts.delete(fromUserId);
       }
-      set((state) => {
-        if (!state.typingByUserId[fromUserId]) return state;
-        return {
-          typingByUserId: { ...state.typingByUserId, [fromUserId]: false },
-        };
-      });
+      const timeoutId = setTimeout(() => {
+        set((state) => {
+          if (!state.typingByUserId[fromUserId]) return state;
+          return {
+            typingByUserId: { ...state.typingByUserId, [fromUserId]: false },
+          };
+        });
+        typingTimeouts.delete(fromUserId);
+      }, 1200);
+      typingTimeouts.set(fromUserId, timeoutId);
     });
   },
 
