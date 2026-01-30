@@ -84,16 +84,20 @@ export const deleteMessageSchema = z.object({
 
 export const pinToggleSchema = z.object({
   params: messageIdParam,
-  body: z.object({
-    pin: z.boolean().optional(),
-  }),
+  body: z
+    .object({
+      pin: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export const starToggleSchema = z.object({
   params: messageIdParam,
-  body: z.object({
-    star: z.boolean().optional(),
-  }),
+  body: z
+    .object({
+      star: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export const searchMessagesSchema = z.object({

@@ -3,22 +3,23 @@ import { useChatStore } from "../store/useChatStore";
 import UsersLoadingSkeleton from "./UsersLoadingSkeleton";
 import NoChatsFound from "./NoChatsFound";
 import { useAuthStore } from "../store/useAuthStore";
-import { shallow } from "zustand/shallow";
+import { useShallow } from "zustand/react/shallow";
 
 function ChatsList() {
   const { getMyChatPartners, chats, isUsersLoading, setSelectedUser } =
     useChatStore(
-      (state) => ({
+      useShallow((state) => ({
         getMyChatPartners: state.getMyChatPartners,
         chats: state.chats,
         isUsersLoading: state.isUsersLoading,
         setSelectedUser: state.setSelectedUser,
-      }),
-      shallow
+      }))
     );
   const { onlineUsers, authUser } = useAuthStore(
-    (state) => ({ onlineUsers: state.onlineUsers, authUser: state.authUser }),
-    shallow
+    useShallow((state) => ({
+      onlineUsers: state.onlineUsers,
+      authUser: state.authUser,
+    }))
   );
 
   useEffect(() => {

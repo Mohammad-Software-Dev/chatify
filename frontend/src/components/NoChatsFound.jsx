@@ -1,11 +1,10 @@
 import { MessageCircleIcon } from "lucide-react";
 import { useChatStore } from "../store/useChatStore";
-import { shallow } from "zustand/shallow";
+import { useShallow } from "zustand/react/shallow";
 
 function NoChatsFound() {
   const { setActiveTab } = useChatStore(
-    (state) => ({ setActiveTab: state.setActiveTab }),
-    shallow
+    useShallow((state) => ({ setActiveTab: state.setActiveTab }))
   );
 
   return (

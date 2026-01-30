@@ -9,26 +9,24 @@ import {
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 import { axiosInstance } from "../lib/axios";
-import { shallow } from "zustand/shallow";
+import { useShallow } from "zustand/react/shallow";
 
 const mouseClickSound = new Audio("/sounds/mouse-click.mp3");
 
 function ProfileHeader() {
   const { logout, authUser, updateProfile, updateUsername } = useAuthStore(
-    (state) => ({
+    useShallow((state) => ({
       logout: state.logout,
       authUser: state.authUser,
       updateProfile: state.updateProfile,
       updateUsername: state.updateUsername,
-    }),
-    shallow
+    }))
   );
   const { isSoundEnabled, toggleSound } = useChatStore(
-    (state) => ({
+    useShallow((state) => ({
       isSoundEnabled: state.isSoundEnabled,
       toggleSound: state.toggleSound,
-    }),
-    shallow
+    }))
   );
   const [selectedImg, setSelectedImg] = useState(null);
   const [usernameInput, setUsernameInput] = useState(authUser?.username || "");

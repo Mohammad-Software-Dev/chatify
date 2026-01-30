@@ -27,7 +27,7 @@ import {
   XIcon,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { shallow } from "zustand/shallow";
+import { useShallow } from "zustand/react/shallow";
 
 function ChatContainer() {
   const {
@@ -59,7 +59,7 @@ function ChatContainer() {
     pendingScrollMessageId,
     clearPendingScrollMessageId,
   } = useChatStore(
-    (state) => ({
+    useShallow((state) => ({
       selectedUser: state.selectedUser,
       getMessagesByUserId: state.getMessagesByUserId,
       messages: state.messages,
@@ -87,12 +87,10 @@ function ChatContainer() {
       retryFailedMessage: state.retryFailedMessage,
       pendingScrollMessageId: state.pendingScrollMessageId,
       clearPendingScrollMessageId: state.clearPendingScrollMessageId,
-    }),
-    shallow
+    }))
   );
   const { authUser } = useAuthStore(
-    (state) => ({ authUser: state.authUser }),
-    shallow
+    useShallow((state) => ({ authUser: state.authUser }))
   );
   const listRef = useRef(null);
   const listOuterRef = useRef(null);
@@ -138,13 +136,26 @@ function ChatContainer() {
   useLayoutEffect(() => {
     if (!listWrapperRef.current) return;
     const update = () => {
-      setListHeight(listWrapperRef.current.clientHeight || 0);
+      const nextHeight =
+        listWrapperRef.current.clientHeight ||
+        listWrapperRef.current.parentElement?.clientHeight ||
+        0;
+      setListHeight((prev) => (prev === nextHeight ? prev : nextHeight));
     };
-    update();
-    if (typeof ResizeObserver === "undefined") return;
+    requestAnimationFrame(update);
+    const resizeHandler = () => requestAnimationFrame(update);
+    window.addEventListener("resize", resizeHandler);
+    if (typeof ResizeObserver === "undefined") {
+      return () => {
+        window.removeEventListener("resize", resizeHandler);
+      };
+    }
     const observer = new ResizeObserver(update);
     observer.observe(listWrapperRef.current);
-    return () => observer.disconnect();
+    return () => {
+      window.removeEventListener("resize", resizeHandler);
+      observer.disconnect();
+    };
   }, []);
 
   useEffect(() => {
@@ -402,6 +413,11 @@ function ChatContainer() {
     }
     return null;
   };
+
+  const effectiveListHeight =
+    listHeight ||
+    listWrapperRef.current?.parentElement?.clientHeight ||
+    320;
 
   const Row = memo(({ index, style }) => {
     const rowRef = useRef(null);
@@ -979,11 +995,11 @@ function ChatContainer() {
                 Loading older messages...
               </div>
             )}
-            {listHeight > 0 && (
+            {effectiveListHeight > 0 && (
               <List
                 ref={listRef}
                 outerRef={listOuterRef}
-                height={listHeight}
+                height={effectiveListHeight}
                 width="100%"
                 itemCount={messages.length + (isTyping ? 1 : 0)}
                 itemSize={getItemSize}

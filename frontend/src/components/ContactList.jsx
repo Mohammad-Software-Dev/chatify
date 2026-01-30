@@ -3,7 +3,7 @@ import { useChatStore } from "../store/useChatStore";
 import UsersLoadingSkeleton from "./UsersLoadingSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
 import { SearchIcon, XIcon } from "lucide-react";
-import { shallow } from "zustand/shallow";
+import { useShallow } from "zustand/react/shallow";
 
 function ContactList() {
   const {
@@ -13,18 +13,16 @@ function ContactList() {
     isContactSearching,
     unreadByUserId,
   } = useChatStore(
-    (state) => ({
+    useShallow((state) => ({
       getAllContacts: state.getAllContacts,
       allContacts: state.allContacts,
       setSelectedUser: state.setSelectedUser,
       isContactSearching: state.isContactSearching,
       unreadByUserId: state.unreadByUserId,
-    }),
-    shallow
+    }))
   );
   const { onlineUsers } = useAuthStore(
-    (state) => ({ onlineUsers: state.onlineUsers }),
-    shallow
+    useShallow((state) => ({ onlineUsers: state.onlineUsers }))
   );
   const [query, setQuery] = useState("");
 
@@ -107,7 +105,9 @@ function ContactList() {
           </div>
         </div>
       ))}
-      {query.trim().length > 0 && allContacts.length === 0 && !isUsersLoading && (
+      {query.trim().length > 0 &&
+        allContacts.length === 0 &&
+        !isContactSearching && (
         <div className="text-sm text-slate-400">No users found.</div>
       )}
     </>
