@@ -79,6 +79,7 @@ export const useChatStore = create((set, get) => ({
   selectedUser: null,
   pendingScrollMessageId: null,
   isUsersLoading: false,
+  isContactSearching: false,
   isMessagesLoading: false,
   isLoadingMoreMessages: false,
   hasMoreMessages: true,
@@ -112,6 +113,7 @@ export const useChatStore = create((set, get) => ({
       activeTab: "chats",
       selectedUser: null,
       isUsersLoading: false,
+      isContactSearching: false,
       isMessagesLoading: false,
       isLoadingMoreMessages: false,
       hasMoreMessages: true,
@@ -148,11 +150,11 @@ export const useChatStore = create((set, get) => ({
   clearPendingScrollMessageId: () => set({ pendingScrollMessageId: null }),
 
   getAllContacts: async (username) => {
-    set({ isUsersLoading: true });
+    set({ isContactSearching: true });
     try {
       const query = username?.trim();
       if (!query) {
-        set({ allContacts: [] });
+        set({ allContacts: [], isContactSearching: false });
         return;
       }
       const res = await axiosInstance.get(
@@ -162,7 +164,7 @@ export const useChatStore = create((set, get) => ({
     } catch (error) {
       toast.error(error.response.data.message);
     } finally {
-      set({ isUsersLoading: false });
+      set({ isContactSearching: false });
     }
   },
   getMyChatPartners: async () => {

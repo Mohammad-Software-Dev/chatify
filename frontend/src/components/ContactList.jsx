@@ -9,7 +9,7 @@ function ContactList() {
     getAllContacts,
     allContacts,
     setSelectedUser,
-    isUsersLoading,
+    isContactSearching,
     unreadByUserId,
   } = useChatStore();
   const { onlineUsers } = useAuthStore();
@@ -21,8 +21,6 @@ function ContactList() {
     }, 300);
     return () => clearTimeout(timer);
   }, [getAllContacts, query]);
-
-  if (isUsersLoading) return <UsersLoadingSkeleton />;
 
   return (
     <>
@@ -50,6 +48,9 @@ function ContactList() {
         <p className="text-xs text-slate-400 mt-2">
           Enter a username to find people to chat with.
         </p>
+        {isContactSearching ? (
+          <p className="text-xs text-slate-400 mt-2">Searching...</p>
+        ) : null}
       </div>
       {query.trim().length === 0 && (
         <div className="text-sm text-slate-400">
