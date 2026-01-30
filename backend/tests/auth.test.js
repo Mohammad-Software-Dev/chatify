@@ -136,4 +136,60 @@ describeDb("Auth", () => {
       .set("Cookie", refreshCookie);
     expect(reuseRes.status).toBe(401);
   });
+
+  it("updates username after availability check", async () => {
+    await request(app).post("/api/auth/signup").send({
+      fullName: "Update User",
+      email: "update@example.com",
+      password: "password123",
+      username: "update_user",
+    });
+
+    const loginRes = await request(app).post("/api/auth/login").send({
+      email: "update@example.com",
+      password: "password123",
+    });
+    const cookie = loginRes.headers["set-cookie"][0];
+
+    const checkRes = await request(app)
+      .get("/api/auth/check-username")
+      .query({ username: "new_username" });
+    expect(checkRes.status).toBe(200);
+    expect(checkRes.body.available).toBe(true);
+
+    const updateRes = await request(app)
+      .put("/api/auth/update-username")
+      .set("Cookie", cookie)
+      .send({ username: "new_username" });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.username).toBe("new_username");
+  });
+
+  it("rejects username update when already taken", async () => {
+    await request(app).post("/api/auth/signup").send({
+      fullName: "User One",
+      email: "one@example.com",
+      password: "password123",
+      username: "user_one",
+    });
+    await request(app).post("/api/auth/signup").send({
+      fullName: "User Two",
+      email: "two@example.com",
+      password: "password123",
+      username: "user_two",
+    });
+
+    const loginRes = await request(app).post("/api/auth/login").send({
+      email: "one@example.com",
+      password: "password123",
+    });
+    const cookie = loginRes.headers["set-cookie"][0];
+
+    const updateRes = await request(app)
+      .put("/api/auth/update-username")
+      .set("Cookie", cookie)
+      .send({ username: "user_two" });
+    expect(updateRes.status).toBe(400);
+    expect(updateRes.body.message).toMatch(/Username already exists/i);
+  });
 });

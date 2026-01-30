@@ -297,3 +297,36 @@ export const updateProfile = async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 };
+
+export const updateUsername = async (req, res) => {
+  try {
+    const rawUsername = req.body?.username;
+    const normalized = normalizeUsername(rawUsername);
+    if (!normalized || !isValidUsername(normalized)) {
+      return res.status(400).json({
+        message: "Username must be 3-20 characters and use letters, numbers, or underscores",
+      });
+    }
+
+    const currentUserId = req.user._id.toString();
+    if (normalized === req.user.username) {
+      return res.status(200).json(req.user);
+    }
+
+    const existing = await User.findOne({ username: normalized }).select("_id");
+    if (existing && existing._id.toString() !== currentUserId) {
+      return res.status(400).json({ message: "Username already exists" });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      req.user._id,
+      { username: normalized },
+      { new: true }
+    );
+
+    res.status(200).json(updatedUser);
+  } catch (error) {
+    console.error("Error in updateUsername controller:", error.message);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};

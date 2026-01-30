@@ -94,6 +94,21 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
+  updateUsername: async (username) => {
+    try {
+      const res = await axiosInstance.put("/auth/update-username", {
+        username,
+      });
+      set({ authUser: res.data });
+      toast.success("Username updated successfully");
+      return true;
+    } catch (error) {
+      console.log("Error in update username:", error);
+      toast.error(error.response?.data?.message || "Username update failed");
+      return false;
+    }
+  },
+
   connectSocket: () => {
     const { authUser } = get();
     if (!authUser || get().socket?.connected) return;

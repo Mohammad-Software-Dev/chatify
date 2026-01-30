@@ -5,6 +5,7 @@ import {
   login,
   logout,
   updateProfile,
+  updateUsername,
   checkUsername,
   checkAuth,
   refreshSession,
@@ -17,6 +18,7 @@ import {
   loginSchema,
   checkUsernameSchema,
   updateProfileSchema,
+  updateUsernameSchema,
 } from "../validators/index.js";
 
 const router = express.Router();
@@ -38,6 +40,13 @@ router.put(
   protectRoute,
   validate(updateProfileSchema),
   updateProfile
+);
+
+router.put(
+  "/update-username",
+  protectRoute,
+  validate(updateUsernameSchema),
+  updateUsername
 );
 
 router.get("/check", protectRoute, checkAuth);

@@ -34,6 +34,12 @@ export const updateProfileSchema = z.object({
   }),
 });
 
+export const updateUsernameSchema = z.object({
+  body: z.object({
+    username: z.string().min(3).max(20).regex(usernameRegex),
+  }),
+});
+
 export const getMessagesSchema = z.object({
   params: userIdParam,
   query: z.object({
