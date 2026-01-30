@@ -108,7 +108,19 @@ function ChatContainer() {
   const [editingText, setEditingText] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState("all");
+  const [hasNewMessages, setHasNewMessages] = useState(false);
   const sizeMapRef = useRef(new Map());
+
+  const getLastIndex = useCallback(() => {
+    const extra = isTyping ? 1 : 0;
+    return Math.max(messages.length + extra - 1, 0);
+  }, [isTyping, messages.length]);
+
+  const scrollToLatest = useCallback(() => {
+    if (!listRef.current) return;
+    if (messages.length === 0) return;
+    listRef.current.scrollToItem(getLastIndex(), "end");
+  }, [getLastIndex, messages.length]);
 
   const messageIdToIndex = useMemo(() => {
     const map = new Map();
@@ -184,8 +196,11 @@ function ChatContainer() {
   useEffect(() => {
     getMessagesByUserId(selectedUser._id);
     hasInitialScrollRef.current = false;
+    prevMessageCountRef.current = 0;
+    isAtBottomRef.current = true;
     setSearchQuery("");
     setViewMode("all");
+    setHasNewMessages(false);
     clearSearchResults();
   }, [selectedUser, getMessagesByUserId, clearSearchResults]);
 
@@ -230,15 +245,22 @@ function ChatContainer() {
   useLayoutEffect(() => {
     if (isPrependingRef.current) return;
     if (!listRef.current || hasInitialScrollRef.current) return;
-    const scrollToBottom = () => {
-      listRef.current?.scrollToItem(messages.length - 1, "end");
-    };
     if (messages.length === 0) return;
-    scrollToBottom();
-    requestAnimationFrame(scrollToBottom);
-    setTimeout(scrollToBottom, 0);
+    scrollToLatest();
     hasInitialScrollRef.current = true;
-  }, [messages]);
+  }, [messages.length, selectedUser?._id, scrollToLatest]);
+
+  useLayoutEffect(() => {
+    if (isPrependingRef.current) return;
+    if (hasInitialScrollRef.current) return;
+    if (messages.length === 0) return;
+    if (!listRef.current || listHeight === 0) return;
+    const run = () => scrollToLatest();
+    run();
+    requestAnimationFrame(run);
+    setTimeout(run, 0);
+    hasInitialScrollRef.current = true;
+  }, [messages.length, listHeight, scrollToLatest]);
 
   useEffect(() => {
     const outer = listOuterRef.current;
@@ -247,7 +269,10 @@ function ChatContainer() {
     const isNewMessage = messages.length > prevCount;
 
     if (isNewMessage && isAtBottomRef.current) {
-      listRef.current?.scrollToItem(messages.length - 1, "end");
+      scrollToLatest();
+      setHasNewMessages((prev) => (prev ? false : prev));
+    } else if (isNewMessage && !isAtBottomRef.current) {
+      setHasNewMessages((prev) => (prev ? prev : true));
     }
 
     prevMessageCountRef.current = messages.length;
@@ -257,14 +282,9 @@ function ChatContainer() {
     const outer = listOuterRef.current;
     if (!outer || !listRef.current) return;
     if (isTyping && isAtBottomRef.current) {
-      const scrollToBottom = () => {
-        listRef.current?.scrollToItem(messages.length - 1, "end");
-      };
-      scrollToBottom();
-      requestAnimationFrame(scrollToBottom);
-      setTimeout(scrollToBottom, 200);
+      scrollToLatest();
     }
-  }, [isTyping, messages.length]);
+  }, [isTyping, messages.length, scrollToLatest]);
 
   const handleLoadOlderMessages = async () => {
     const outer = listOuterRef.current;
@@ -290,7 +310,12 @@ function ChatContainer() {
     if (!outer) return;
     const atBottom =
       outer.scrollHeight - scrollOffset - outer.clientHeight <= 40;
-    isAtBottomRef.current = atBottom;
+    if (isAtBottomRef.current !== atBottom) {
+      isAtBottomRef.current = atBottom;
+    }
+    if (atBottom) {
+      setHasNewMessages((prev) => (prev ? false : prev));
+    }
     if (
       scrollOffset <= 40 &&
       !isLoadingMoreMessages &&
@@ -298,6 +323,12 @@ function ChatContainer() {
     ) {
       handleLoadOlderMessages();
     }
+  };
+
+  const scrollToBottom = () => {
+    if (messages.length === 0) return;
+    scrollToLatest();
+    setHasNewMessages(false);
   };
 
   const handleBubbleClick = (msg) => {
@@ -996,23 +1027,36 @@ function ChatContainer() {
               </div>
             )}
             {effectiveListHeight > 0 && (
-              <List
-                ref={listRef}
-                outerRef={listOuterRef}
-                height={effectiveListHeight}
-                width="100%"
-                itemCount={messages.length + (isTyping ? 1 : 0)}
-                itemSize={getItemSize}
-                onScroll={handleScroll}
-                itemKey={(index) => {
-                  if (isTyping && index === messages.length) {
-                    return "typing-indicator";
-                  }
-                  return messages[index]?._id || index;
-                }}
-              >
-                {Row}
-              </List>
+              <div className="relative h-full">
+                <List
+                  ref={listRef}
+                  outerRef={listOuterRef}
+                  height={effectiveListHeight}
+                  width="100%"
+                  itemCount={messages.length + (isTyping ? 1 : 0)}
+                  itemSize={getItemSize}
+                  onScroll={handleScroll}
+                  itemKey={(index) => {
+                    if (isTyping && index === messages.length) {
+                      return "typing-indicator";
+                    }
+                    return messages[index]?._id || index;
+                  }}
+                >
+                  {Row}
+                </List>
+                {hasNewMessages && !isAtBottomRef.current ? (
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+                    <button
+                      type="button"
+                      onClick={scrollToBottom}
+                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-slate-900/80 border border-slate-700/60 text-slate-100 shadow-lg hover:bg-slate-900"
+                    >
+                      New messages
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             )}
           </div>
         ) : isMessagesLoading ? (
