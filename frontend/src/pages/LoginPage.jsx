@@ -106,7 +106,7 @@ function LoginPage() {
                   className="w-full h-auto object-contain"
                 />
                 <div className="mt-6 text-center">
-                  <h3 className="text-xl font-medium text-cyan-400">
+                  <h3 className="text-xl font-medium accent-text-strong">
                     Connect anytime, anywhere
                   </h3>
 

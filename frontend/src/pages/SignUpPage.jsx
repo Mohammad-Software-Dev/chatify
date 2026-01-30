@@ -153,16 +153,16 @@ function SignUpPage() {
                           disabled={
                             isCheckingUsername || !formData.username?.trim()
                           }
-                          className="bg-cyan-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-cyan-600 focus:ring-2 focus:ring-cyan-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                          className="accent-bg rounded-lg px-4 py-2 text-sm font-medium focus:ring-2 accent-ring disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           {isCheckingUsername ? "Checking..." : "Check"}
                         </button>
                         {usernameStatus === "available" ? (
-                          <CheckCircle2Icon className="w-5 h-5 text-emerald-400" />
+                          <CheckCircle2Icon className="w-5 h-5 status-success" />
                         ) : null}
                         {usernameStatus === "taken" ||
                         usernameStatus === "error" ? (
-                          <XCircleIcon className="w-5 h-5 text-rose-400" />
+                          <XCircleIcon className="w-5 h-5 status-danger" />
                         ) : null}
                       </div>
                     </div>
@@ -171,8 +171,8 @@ function SignUpPage() {
                       <p
                         className={`text-sm mt-2 ${
                           usernameStatus === "available"
-                            ? "text-emerald-400"
-                            : "text-rose-400"
+                            ? "status-success"
+                            : "status-danger"
                         }`}
                       >
                         {usernameMessage}
@@ -267,7 +267,7 @@ function SignUpPage() {
                   className="w-full h-auto object-contain"
                 />
                 <div className="mt-6 text-center">
-                  <h3 className="text-xl font-medium text-cyan-400">
+                  <h3 className="text-xl font-medium accent-text-strong">
                     Start Your Journey Today
                   </h3>
 

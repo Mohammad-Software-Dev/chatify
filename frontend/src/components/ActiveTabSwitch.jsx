@@ -15,7 +15,7 @@ function ActiveTabSwitch() {
         onClick={() => setActiveTab("chats")}
         className={`tab ${
           activeTab === "chats"
-            ? "bg-cyan-500/20 text-cyan-400"
+            ? "accent-soft border accent-text-strong"
             : "text-slate-400"
         }`}
       >
@@ -26,7 +26,7 @@ function ActiveTabSwitch() {
         onClick={() => setActiveTab("contacts")}
         className={`tab ${
           activeTab === "contacts"
-            ? "bg-cyan-500/20 text-cyan-400"
+            ? "accent-soft border accent-text-strong"
             : "text-slate-400"
         }`}
       >

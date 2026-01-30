@@ -17,8 +17,248 @@
   }
 }
 
+.app-shell {
+  background: var(--app-bg);
+  color: var(--text-primary);
+}
+
+.app-grid {
+  background-image: linear-gradient(
+      to right,
+      var(--grid-color) 1px,
+      transparent 1px
+    ),
+    linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px);
+}
+
+.app-glow-1 {
+  background: var(--glow-1);
+}
+
+.app-glow-2 {
+  background: var(--glow-2);
+}
+
+.panel {
+  background: var(--panel-bg);
+  border-color: var(--panel-border);
+}
+
+.panel-strong {
+  background: var(--panel-strong);
+}
+
+.app-border-frame {
+  background: linear-gradient(
+        45deg,
+        var(--frame-bg-1),
+        var(--frame-bg-2) 50%,
+        var(--frame-bg-1)
+      )
+      padding-box,
+    conic-gradient(
+        from var(--border-angle),
+        var(--frame-border-muted) 80%,
+        var(--frame-border-accent) 86%,
+        var(--frame-border-accent-2) 90%,
+        var(--frame-border-accent) 94%,
+        var(--frame-border-muted)
+      )
+      border-box;
+  border: 1px solid transparent;
+  border-radius: 1rem;
+  animation: border 4s linear infinite;
+}
+
+.accent-text {
+  color: var(--accent);
+}
+
+.accent-text-strong {
+  color: var(--accent-strong);
+}
+
+.accent-bg {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.accent-soft {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent-border);
+}
+
+.accent-border {
+  border-color: var(--accent-border);
+}
+
+.accent-ring {
+  --tw-ring-color: var(--accent);
+}
+
+.accent-gradient {
+  background: linear-gradient(
+    135deg,
+    var(--accent) 0%,
+    var(--accent-strong) 100%
+  );
+  color: var(--accent-contrast);
+}
+
+.accent-gradient:hover {
+  filter: brightness(1.05);
+}
+
+.message-bubble-in {
+  background: var(--bubble-in-bg);
+  color: var(--bubble-in-text);
+}
+
+.message-bubble-out {
+  background: var(--bubble-out-bg);
+  color: var(--bubble-out-text);
+}
+
+.selected-chat {
+  background: var(--selected-chat-bg);
+  border-color: var(--selected-chat-border);
+}
+
+.status-warning {
+  color: var(--warning);
+}
+
+.status-danger {
+  color: var(--danger);
+}
+
+.status-success {
+  color: var(--success);
+}
+
+:root {
+  --app-bg: #0b1220;
+  --grid-color: rgba(79, 79, 79, 0.14);
+  --glow-1: rgba(236, 72, 153, 0.12);
+  --glow-2: rgba(34, 211, 238, 0.12);
+  --panel-bg: rgba(15, 23, 42, 0.55);
+  --panel-strong: rgba(15, 23, 42, 0.7);
+  --panel-border: rgba(71, 85, 105, 0.45);
+  --frame-bg-1: #0f172a;
+  --frame-bg-2: #111827;
+  --frame-border-muted: rgba(148, 163, 184, 0.35);
+  --frame-border-accent: rgba(56, 189, 248, 0.8);
+  --frame-border-accent-2: rgba(125, 211, 252, 0.8);
+  --text-primary: #e2e8f0;
+  --accent: #22d3ee;
+  --accent-strong: #7dd3fc;
+  --accent-contrast: #0b1220;
+  --accent-soft: rgba(34, 211, 238, 0.16);
+  --accent-border: rgba(34, 211, 238, 0.4);
+  --bubble-in-bg: rgba(30, 41, 59, 0.9);
+  --bubble-in-text: #e2e8f0;
+  --selected-chat-bg: rgba(34, 211, 238, 0.16);
+  --selected-chat-border: rgba(34, 211, 238, 0.4);
+  --bubble-out-bg: var(--selected-chat-bg);
+  --bubble-out-text: #e2e8f0;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #fb7185;
+}
+
+[data-theme="emerald"] {
+  --app-bg: #0b1220;
+  --grid-color: rgba(16, 185, 129, 0.12);
+  --glow-1: rgba(16, 185, 129, 0.16);
+  --glow-2: rgba(20, 184, 166, 0.12);
+  --panel-bg: rgba(6, 78, 59, 0.45);
+  --panel-strong: rgba(6, 78, 59, 0.65);
+  --panel-border: rgba(16, 185, 129, 0.35);
+  --frame-bg-1: #0b1220;
+  --frame-bg-2: #0f172a;
+  --frame-border-muted: rgba(52, 211, 153, 0.3);
+  --frame-border-accent: rgba(16, 185, 129, 0.9);
+  --frame-border-accent-2: rgba(52, 211, 153, 0.9);
+  --accent: #34d399;
+  --accent-strong: #6ee7b7;
+  --accent-contrast: #022c22;
+  --accent-soft: rgba(16, 185, 129, 0.2);
+  --accent-border: rgba(16, 185, 129, 0.45);
+  --bubble-in-bg: rgba(6, 78, 59, 0.6);
+  --bubble-in-text: #e2e8f0;
+  --selected-chat-bg: rgba(16, 185, 129, 0.2);
+  --selected-chat-border: rgba(16, 185, 129, 0.45);
+  --bubble-out-bg: var(--selected-chat-bg);
+  --bubble-out-text: #ecfeff;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #fb7185;
+}
+
+[data-theme="amber"] {
+  --app-bg: #0b1220;
+  --grid-color: rgba(245, 158, 11, 0.12);
+  --glow-1: rgba(245, 158, 11, 0.14);
+  --glow-2: rgba(251, 191, 36, 0.1);
+  --panel-bg: rgba(39, 22, 6, 0.6);
+  --panel-strong: rgba(30, 20, 8, 0.7);
+  --panel-border: rgba(245, 158, 11, 0.35);
+  --frame-bg-1: #0b1220;
+  --frame-bg-2: #111827;
+  --frame-border-muted: rgba(251, 191, 36, 0.25);
+  --frame-border-accent: rgba(245, 158, 11, 0.85);
+  --frame-border-accent-2: rgba(251, 191, 36, 0.9);
+  --accent: #fbbf24;
+  --accent-strong: #fcd34d;
+  --accent-contrast: #1f1300;
+  --accent-soft: rgba(245, 158, 11, 0.18);
+  --accent-border: rgba(245, 158, 11, 0.4);
+  --bubble-in-bg: rgba(60, 35, 8, 0.6);
+  --bubble-in-text: #fef3c7;
+  --selected-chat-bg: rgba(245, 158, 11, 0.18);
+  --selected-chat-border: rgba(245, 158, 11, 0.4);
+  --bubble-out-bg: var(--selected-chat-bg);
+  --bubble-out-text: #fff7ed;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #fb7185;
+}
+
+[data-theme="rose"] {
+  --app-bg: #0b1220;
+  --grid-color: rgba(244, 63, 94, 0.12);
+  --glow-1: rgba(244, 63, 94, 0.14);
+  --glow-2: rgba(248, 113, 113, 0.1);
+  --panel-bg: rgba(30, 12, 20, 0.6);
+  --panel-strong: rgba(30, 12, 20, 0.7);
+  --panel-border: rgba(244, 63, 94, 0.35);
+  --frame-bg-1: #0b1220;
+  --frame-bg-2: #111827;
+  --frame-border-muted: rgba(248, 113, 113, 0.3);
+  --frame-border-accent: rgba(244, 63, 94, 0.85);
+  --frame-border-accent-2: rgba(251, 113, 133, 0.9);
+  --accent: #fb7185;
+  --accent-strong: #fda4af;
+  --accent-contrast: #2a0a12;
+  --accent-soft: rgba(244, 63, 94, 0.2);
+  --accent-border: rgba(244, 63, 94, 0.45);
+  --bubble-in-bg: rgba(76, 29, 40, 0.6);
+  --bubble-in-text: #ffe4e6;
+  --selected-chat-bg: rgba(244, 63, 94, 0.2);
+  --selected-chat-border: rgba(244, 63, 94, 0.45);
+  --bubble-out-bg: var(--selected-chat-bg);
+  --bubble-out-text: #fff1f2;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #fb7185;
+}
+
 .input {
-  @apply w-full bg-slate-800/50 border border-slate-700 rounded-lg py-2 pl-10 pr-4 text-slate-200 placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-transparent;
+  @apply w-full rounded-lg py-2 pl-10 pr-4 text-slate-200 placeholder-slate-400 focus:ring-2 focus:border-transparent;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid var(--panel-border);
+  --tw-ring-color: var(--accent);
 }
 
 .auth-input-icon {
@@ -30,17 +270,24 @@
 }
 
 .auth-badge {
-  @apply inline-flex items-center px-3 py-1 text-xs font-medium rounded-full bg-cyan-500/20 text-cyan-300;
+  @apply inline-flex items-center px-3 py-1 text-xs font-medium rounded-full;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border: 1px solid var(--accent-border);
 }
 
 .auth-btn {
-  @apply w-full bg-cyan-500 text-white rounded-lg py-2.5 font-medium
-  hover:bg-cyan-600 focus:ring-2 focus:ring-cyan-500;
+  @apply w-full rounded-lg py-2.5 font-medium focus:ring-2;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  --tw-ring-color: var(--accent);
 }
 
 .auth-link {
-  @apply px-4 py-2 inline-block bg-cyan-500/10 rounded-lg text-cyan-400
-  hover:text-cyan-500 text-sm transition-colors;
+  @apply px-4 py-2 inline-block rounded-lg text-sm transition-colors;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border: 1px solid var(--accent-border);
 }
 
 .typing-indicator {
@@ -54,7 +301,7 @@
   width: 6px;
   height: 6px;
   border-radius: 9999px;
-  background: #cbd5f5;
+  background: var(--success);
   opacity: 0.6;
   animation: typingPulse 1.2s infinite ease-in-out;
 }
@@ -97,14 +344,16 @@
 
 .typing-bubble {
   opacity: 0;
-  transform: translateY(4px);
+  transform: translateY(8px) scale(0.98);
   max-height: 0;
-  transition: opacity 200ms ease, transform 200ms ease, max-height 200ms ease;
+  transition: opacity 260ms ease, transform 260ms ease,
+    max-height 320ms ease;
   overflow: hidden;
+  will-change: opacity, transform;
 }
 
 .typing-bubble--visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
   max-height: 80px;
 }

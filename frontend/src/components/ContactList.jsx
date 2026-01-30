@@ -12,6 +12,7 @@ function ContactList() {
     setSelectedUser,
     isContactSearching,
     unreadByUserId,
+    selectedUser,
   } = useChatStore(
     useShallow((state) => ({
       getAllContacts: state.getAllContacts,
@@ -19,6 +20,7 @@ function ContactList() {
       setSelectedUser: state.setSelectedUser,
       isContactSearching: state.isContactSearching,
       unreadByUserId: state.unreadByUserId,
+      selectedUser: state.selectedUser,
     }))
   );
   const { onlineUsers } = useAuthStore(
@@ -76,7 +78,11 @@ function ContactList() {
       {allContacts.map((contact) => (
         <div
           key={contact._id}
-          className="bg-cyan-500/10 p-4 rounded-lg cursor-pointer hover:bg-cyan-500/20 transition-colors"
+          className={`border p-4 rounded-lg cursor-pointer transition-colors ${
+            selectedUser?._id === contact._id
+              ? "selected-chat"
+              : "accent-soft hover:opacity-90"
+          }`}
           onClick={() => setSelectedUser(contact)}
         >
           <div className="flex items-center gap-3 justify-between">
@@ -98,7 +104,7 @@ function ContactList() {
               </p>
             </div>
             {unreadByUserId[contact._id] > 0 && (
-              <span className="text-xs font-semibold bg-cyan-500 text-slate-900 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-semibold accent-bg px-2 py-0.5 rounded-full">
                 {unreadByUserId[contact._id]}
               </span>
             )}

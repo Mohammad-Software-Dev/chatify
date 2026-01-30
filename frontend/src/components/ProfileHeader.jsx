@@ -36,6 +36,10 @@ function ProfileHeader() {
   const [checkedUsername, setCheckedUsername] = useState("");
   const [isCheckingUsername, setIsCheckingUsername] = useState(false);
   const [isSavingUsername, setIsSavingUsername] = useState(false);
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === "undefined") return "midnight";
+    return localStorage.getItem("chatify.theme") || "midnight";
+  });
 
   const fileInputRef = useRef(null);
 
@@ -60,6 +64,12 @@ function ProfileHeader() {
     setUsernameSuggestions([]);
     setCheckedUsername("");
   }, [authUser?.username]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("chatify.theme", theme);
+  }, [theme]);
 
   const handleUsernameChange = (value) => {
     setUsernameInput(value);
@@ -236,24 +246,24 @@ function ProfileHeader() {
               checkedUsername !== usernameInput.trim() ||
               usernameInput.trim() === authUser?.username
             }
-            className="px-3 py-2 rounded-lg text-xs font-medium border border-emerald-500/60 text-emerald-200 hover:bg-emerald-500/10 disabled:opacity-40"
+            className="px-3 py-2 rounded-lg text-xs font-medium accent-soft border hover:opacity-90 disabled:opacity-40"
           >
             {isSavingUsername ? "Saving..." : "Update"}
           </button>
           {usernameStatus === "available" || usernameStatus === "saved" ? (
-            <CheckIcon className="size-4 text-emerald-300" />
+            <CheckIcon className="size-4 status-success" />
           ) : null}
           {usernameStatus === "taken" || usernameStatus === "error" ? (
-            <XIcon className="size-4 text-rose-300" />
+            <XIcon className="size-4 status-danger" />
           ) : null}
         </div>
         {usernameMessage ? (
           <p
             className={`mt-2 text-xs ${
               usernameStatus === "available" || usernameStatus === "saved"
-                ? "text-emerald-300"
+                ? "status-success"
                 : usernameStatus === "taken" || usernameStatus === "error"
-                ? "text-rose-300"
+                ? "status-danger"
                 : "text-slate-400"
             }`}
           >
@@ -267,13 +277,38 @@ function ProfileHeader() {
                 key={suggestion}
                 type="button"
                 onClick={() => handleUsernameChange(suggestion)}
-                className="text-xs text-cyan-200 bg-cyan-500/10 border border-cyan-500/20 rounded-full px-2 py-1"
+                className="text-xs accent-soft border rounded-full px-2 py-1"
               >
                 {suggestion}
               </button>
             ))}
           </div>
         ) : null}
+      </div>
+
+      <div className="mt-3 rounded-lg border border-slate-700/60 bg-slate-900/30 p-3">
+        <label className="auth-input-label">Theme</label>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: "midnight", label: "Midnight" },
+            { id: "emerald", label: "Emerald" },
+            { id: "amber", label: "Amber" },
+            { id: "rose", label: "Rose" },
+          ].map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setTheme(option.id)}
+              className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                theme === option.id
+                  ? "accent-soft border"
+                  : "border-slate-700 text-slate-200 hover:bg-slate-800/60"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

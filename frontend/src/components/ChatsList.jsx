@@ -6,15 +6,23 @@ import { useAuthStore } from "../store/useAuthStore";
 import { useShallow } from "zustand/react/shallow";
 
 function ChatsList() {
-  const { getMyChatPartners, chats, isUsersLoading, setSelectedUser } =
-    useChatStore(
-      useShallow((state) => ({
-        getMyChatPartners: state.getMyChatPartners,
-        chats: state.chats,
-        isUsersLoading: state.isUsersLoading,
-        setSelectedUser: state.setSelectedUser,
-      }))
-    );
+  const {
+    getMyChatPartners,
+    chats,
+    isUsersLoading,
+    setSelectedUser,
+    typingByUserId,
+    selectedUser,
+  } = useChatStore(
+    useShallow((state) => ({
+      getMyChatPartners: state.getMyChatPartners,
+      chats: state.chats,
+      isUsersLoading: state.isUsersLoading,
+      setSelectedUser: state.setSelectedUser,
+      typingByUserId: state.typingByUserId,
+      selectedUser: state.selectedUser,
+    }))
+  );
   const { onlineUsers, authUser } = useAuthStore(
     useShallow((state) => ({
       onlineUsers: state.onlineUsers,
@@ -34,7 +42,11 @@ function ChatsList() {
       {chats.map((chat) => (
         <div
           key={chat._id}
-          className="bg-cyan-500/10 p-4 rounded-lg cursor-pointer hover:bg-cyan-500/20 transition-colors"
+          className={`border p-4 rounded-lg cursor-pointer transition-colors ${
+            selectedUser?._id === chat._id
+              ? "selected-chat"
+              : "accent-soft hover:opacity-90"
+          }`}
           onClick={() => setSelectedUser(chat)}
         >
           <div className="flex items-center gap-3 justify-between">
@@ -72,19 +84,23 @@ function ChatsList() {
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-400 truncate">
-                {chat.lastMessageSenderId === authUser?._id ? "You: " : ""}
-                {chat.lastMessageText
-                  ? chat.lastMessageText
-                  : chat.lastMessageImages?.length > 1
-                  ? "Photos"
-                  : chat.lastMessageImage
-                  ? "Image"
-                  : "No messages yet"}
-              </p>
+              {typingByUserId?.[chat._id] ? (
+                <p className="text-xs status-success truncate">Typing...</p>
+              ) : (
+                <p className="text-xs text-slate-400 truncate">
+                  {chat.lastMessageSenderId === authUser?._id ? "You: " : ""}
+                  {chat.lastMessageText
+                    ? chat.lastMessageText
+                    : chat.lastMessageImages?.length > 1
+                    ? "Photos"
+                    : chat.lastMessageImage
+                    ? "Image"
+                    : "No messages yet"}
+                </p>
+              )}
             </div>
             {chat.unreadCount > 0 && (
-              <span className="text-xs font-semibold bg-cyan-500 text-slate-900 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-semibold accent-bg px-2 py-0.5 rounded-full">
                 {chat.unreadCount}
               </span>
             )}

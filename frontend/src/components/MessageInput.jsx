@@ -410,7 +410,7 @@ function MessageInput() {
       onDrop={handleDrop}
     >
       {isDragActive && (
-        <div className="absolute inset-2 z-10 rounded-xl border-2 border-dashed border-cyan-400/80 bg-slate-900/70 flex items-center justify-center text-cyan-100 text-sm font-medium">
+        <div className="absolute inset-2 z-10 rounded-xl border-2 border-dashed accent-border bg-slate-900/70 flex items-center justify-center accent-text-strong text-sm font-medium">
           Drop images to attach
         </div>
       )}
@@ -444,7 +444,7 @@ function MessageInput() {
                 <div className="absolute inset-0 bg-slate-900/60 flex flex-col items-center justify-center rounded-lg">
                   <div className="w-10/12 h-1 bg-slate-700 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-cyan-500 transition-all"
+                      className="h-full accent-bg transition-all"
                       style={{ width: `${img.progress}%` }}
                     />
                   </div>
@@ -454,13 +454,13 @@ function MessageInput() {
                 </div>
               ) : null}
               {img.status === "failed" ? (
-                <div className="absolute inset-0 bg-slate-900/70 flex flex-col items-center justify-center rounded-lg text-rose-300 text-xs">
+                <div className="absolute inset-0 bg-slate-900/70 flex flex-col items-center justify-center rounded-lg status-danger text-xs">
                   <AlertTriangleIcon className="w-4 h-4 mb-1" />
                   <span>Upload failed</span>
                   <button
                     type="button"
                     onClick={() => retryAttachment(img.id)}
-                    className="mt-2 px-2 py-1 rounded-md bg-rose-500/20 text-rose-200 text-[10px] hover:bg-rose-500/30"
+                    className="mt-2 px-2 py-1 rounded-md status-danger text-[10px] border border-current/30 hover:opacity-90"
                   >
                     Retry
                   </button>
@@ -468,7 +468,7 @@ function MessageInput() {
               ) : null}
               {img.status === "uploaded" ? (
                 <div className="absolute top-1 left-1 bg-slate-900/70 rounded-full p-1">
-                  <CheckCircle2Icon className="w-4 h-4 text-emerald-400" />
+                  <CheckCircle2Icon className="w-4 h-4 status-success" />
                 </div>
               ) : null}
               <button
@@ -526,7 +526,7 @@ function MessageInput() {
           type="button"
           onClick={() => fileInputRef.current?.click()}
           className={`bg-slate-800/50 text-slate-400 hover:text-slate-200 rounded-lg px-4 transition-colors ${
-            attachments.length > 0 ? "text-cyan-500" : ""
+            attachments.length > 0 ? "accent-text-strong" : ""
           }`}
         >
           <ImageIcon className="w-5 h-5" />
@@ -534,7 +534,7 @@ function MessageInput() {
         <button
           type="submit"
           disabled={!canSend}
-          className="bg-linear-to-r from-cyan-500 to-cyan-600 text-white rounded-lg px-4 py-2 font-medium hover:from-cyan-600 hover:to-cyan-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          className="accent-gradient rounded-lg px-4 py-2 font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <SendIcon className="w-5 h-5" />
         </button>

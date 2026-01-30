@@ -79,7 +79,9 @@ function ChatHeader() {
           <p className="text-xs text-slate-400">@{selectedUser.username}</p>
           <p
             className={`text-sm ${
-              isTyping ? "text-green-400" : "text-slate-400"
+              isTyping || isActiveNow || isOnline
+                ? "status-success"
+                : "text-slate-400"
             }`}
           >
             {isTyping

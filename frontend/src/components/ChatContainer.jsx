@@ -414,7 +414,7 @@ function ChatContainer() {
     if (msg.localStatus === "queued") {
       return (
         <Clock
-          className="w-3.5 h-3.5 text-amber-200/80"
+          className="w-3.5 h-3.5 status-warning"
           title="Queued"
         />
       );
@@ -427,7 +427,7 @@ function ChatContainer() {
             e.stopPropagation();
             retryFailedMessage(msg._id);
           }}
-          className="text-rose-300 hover:text-rose-200"
+          className="status-danger hover:opacity-90"
           title="Failed to send. Tap to retry."
         >
           <AlertCircle className="w-3.5 h-3.5" />
@@ -469,7 +469,7 @@ function ChatContainer() {
             }`}
           >
             <div className="chat chat-start">
-              <div className="chat-bubble bg-slate-800 text-slate-200">
+              <div className="chat-bubble message-bubble-in">
                 <div className="typing-indicator">
                   <span />
                   <span />
@@ -508,8 +508,8 @@ function ChatContainer() {
           <div
             className={`chat-bubble relative group ${
               msg.senderId === authUser._id
-                ? "bg-cyan-600 text-white"
-                : "bg-slate-800 text-slate-200"
+                ? "message-bubble-out"
+                : "message-bubble-in"
             } ${highlightMessageId === msg._id ? "message-flash" : ""}`}
             onClick={() => handleBubbleClick(msg)}
             onTouchStart={() => handleTouchStart(msg)}
@@ -615,7 +615,7 @@ function ChatContainer() {
                             setEditingText("");
                           }
                         }}
-                        className="px-2 py-1 rounded-md bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30"
+                        className="px-2 py-1 rounded-md accent-soft border hover:opacity-90"
                       >
                         Save
                       </button>
@@ -665,7 +665,7 @@ function ChatContainer() {
               msg.uploadProgress < 100 && (
                 <div className="mt-2 h-1.5 rounded-full bg-slate-700/60 overflow-hidden">
                   <div
-                    className="h-full bg-cyan-300"
+                    className="h-full accent-bg"
                     style={{ width: `${msg.uploadProgress}%` }}
                   />
                 </div>
@@ -693,10 +693,10 @@ function ChatContainer() {
               </span>
               {renderLocalStatus(msg)}
               {!isDeleted && isPinnedByMe(msg) && (
-                <PinIcon className="w-3.5 h-3.5 text-cyan-200" />
+                <PinIcon className="w-3.5 h-3.5 accent-text-strong" />
               )}
               {!isDeleted && isStarredByMe(msg) && (
-                <StarIcon className="w-3.5 h-3.5 text-amber-200" />
+                <StarIcon className="w-3.5 h-3.5 status-warning" />
               )}
               {!isDeleted && msg.editedAt && (
                 <span className="text-[11px] text-slate-200/70">Edited</span>
@@ -740,7 +740,7 @@ function ChatContainer() {
                           setEditingText("");
                         }
                       }}
-                      className="text-rose-200/80 hover:text-rose-100"
+                      className="status-danger hover:opacity-90"
                     >
                       Delete
                     </button>
@@ -754,7 +754,7 @@ function ChatContainer() {
                     disabled={!canToggleMessage(msg)}
                     className={`transition-colors ${
                       isPinnedByMe(msg)
-                        ? "text-cyan-200"
+                        ? "accent-text-strong"
                         : "text-slate-200/70 hover:text-white"
                     } ${
                       !canToggleMessage(msg)
@@ -784,7 +784,7 @@ function ChatContainer() {
                     disabled={!canToggleMessage(msg)}
                     className={`transition-colors ${
                       isStarredByMe(msg)
-                        ? "text-amber-200"
+                        ? "status-warning"
                         : "text-slate-200/70 hover:text-white"
                     } ${
                       !canToggleMessage(msg)
@@ -864,14 +864,14 @@ function ChatContainer() {
                   }
                 >
                   {status === "sent" ? (
-                    <Check className="w-4 h-4 text-slate-200" />
+                    <Check className="w-4 h-4 text-slate-200 bg-transparent" />
                   ) : (
                     <CheckCheck
                       className={`w-4 h-4 ${
                         status === "read"
-                          ? "text-green-400"
+                          ? "status-success"
                           : "text-slate-400"
-                      }`}
+                      } bg-transparent`}
                     />
                   )}
                 </span>
@@ -932,7 +932,7 @@ function ChatContainer() {
             onClick={openPinnedView}
             className={`px-3 py-2 rounded-lg text-sm border ${
               viewMode === "pinned"
-                ? "border-cyan-400 text-cyan-200 bg-cyan-500/10"
+                ? "accent-soft border"
                 : "border-slate-700 text-slate-300 bg-slate-800/40"
             }`}
           >
@@ -943,7 +943,7 @@ function ChatContainer() {
             onClick={openStarredView}
             className={`px-3 py-2 rounded-lg text-sm border ${
               viewMode === "starred"
-                ? "border-amber-300 text-amber-200 bg-amber-400/10"
+                ? "accent-soft border"
                 : "border-slate-700 text-slate-300 bg-slate-800/40"
             }`}
           >
@@ -958,7 +958,7 @@ function ChatContainer() {
               <div className="text-xs text-slate-400">Searching...</div>
             )}
             {viewMode === "search" && searchError && (
-              <div className="text-xs text-amber-300">{searchError}</div>
+              <div className="text-xs status-warning">{searchError}</div>
             )}
             {(() => {
               const results =
@@ -1047,7 +1047,7 @@ function ChatContainer() {
                     <button
                       type="button"
                       onClick={scrollToBottom}
-                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-slate-900/80 border border-slate-700/60 text-slate-100 shadow-lg hover:bg-slate-900"
+                      className="px-3 py-1.5 rounded-full text-xs font-medium accent-soft border shadow-lg hover:opacity-90"
                     >
                       New messages
                     </button>
