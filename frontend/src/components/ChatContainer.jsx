@@ -17,6 +17,7 @@ import {
   XIcon,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { shallow } from "zustand/shallow";
 
 function ChatContainer() {
   const {
@@ -47,8 +48,42 @@ function ChatContainer() {
     retryFailedMessage,
     pendingScrollMessageId,
     clearPendingScrollMessageId,
-  } = useChatStore();
-  const { authUser } = useAuthStore();
+  } = useChatStore(
+    (state) => ({
+      selectedUser: state.selectedUser,
+      getMessagesByUserId: state.getMessagesByUserId,
+      messages: state.messages,
+      isMessagesLoading: state.isMessagesLoading,
+      loadOlderMessages: state.loadOlderMessages,
+      isLoadingMoreMessages: state.isLoadingMoreMessages,
+      hasMoreMessages: state.hasMoreMessages,
+      typingByUserId: state.typingByUserId,
+      setReplyToMessage: state.setReplyToMessage,
+      addReaction: state.addReaction,
+      editMessage: state.editMessage,
+      deleteMessage: state.deleteMessage,
+      searchMessages: state.searchMessages,
+      clearSearchResults: state.clearSearchResults,
+      searchResults: state.searchResults,
+      isSearching: state.isSearching,
+      searchError: state.searchError,
+      pinnedMessages: state.pinnedMessages,
+      starredMessages: state.starredMessages,
+      loadPinnedMessages: state.loadPinnedMessages,
+      loadStarredMessages: state.loadStarredMessages,
+      togglePin: state.togglePin,
+      toggleStar: state.toggleStar,
+      fetchMessageById: state.fetchMessageById,
+      retryFailedMessage: state.retryFailedMessage,
+      pendingScrollMessageId: state.pendingScrollMessageId,
+      clearPendingScrollMessageId: state.clearPendingScrollMessageId,
+    }),
+    shallow
+  );
+  const { authUser } = useAuthStore(
+    (state) => ({ authUser: state.authUser }),
+    shallow
+  );
   const messagesContainerRef = useRef(null);
   const isPrependingRef = useRef(false);
   const hasInitialScrollRef = useRef(false);

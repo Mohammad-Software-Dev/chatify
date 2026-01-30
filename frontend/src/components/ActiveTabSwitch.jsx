@@ -1,7 +1,14 @@
 import { useChatStore } from "../store/useChatStore";
+import { shallow } from "zustand/shallow";
 
 function ActiveTabSwitch() {
-  const { activeTab, setActiveTab } = useChatStore();
+  const { activeTab, setActiveTab } = useChatStore(
+    (state) => ({
+      activeTab: state.activeTab,
+      setActiveTab: state.setActiveTab,
+    }),
+    shallow
+  );
 
   return (
     <div className="tabs tabs-box bg-transparent p-2 m-2 ">

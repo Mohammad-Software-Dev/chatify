@@ -9,6 +9,7 @@ import ChatContainer from "../components/ChatContainer";
 import NoConversationPlaceholder from "../components/NoConversationPlaceholder";
 import { useEffect } from "react";
 import { useAuthStore } from "../store/useAuthStore";
+import { shallow } from "zustand/shallow";
 
 function ChatPage() {
   const {
@@ -16,9 +17,18 @@ function ChatPage() {
     selectedUser,
     subscribeToMessages,
     unsubscribeFromMessages,
-  } = useChatStore();
-  const { processPendingQueue } = useChatStore();
-  const { socket } = useAuthStore();
+    processPendingQueue,
+  } = useChatStore(
+    (state) => ({
+      activeTab: state.activeTab,
+      selectedUser: state.selectedUser,
+      subscribeToMessages: state.subscribeToMessages,
+      unsubscribeFromMessages: state.unsubscribeFromMessages,
+      processPendingQueue: state.processPendingQueue,
+    }),
+    shallow
+  );
+  const { socket } = useAuthStore((state) => ({ socket: state.socket }), shallow);
 
   useEffect(() => {
     if (!socket) return;

@@ -2,6 +2,7 @@ import { XIcon } from "lucide-react";
 import { useChatStore } from "../store/useChatStore";
 import { useEffect } from "react";
 import { useAuthStore } from "../store/useAuthStore";
+import { shallow } from "zustand/shallow";
 
 function ChatHeader() {
   const {
@@ -10,8 +11,24 @@ function ChatHeader() {
     typingByUserId,
     replyToMessage,
     clearReplyToMessage,
-  } = useChatStore();
-  const { onlineUsers, lastSeenByUserId, presenceByUserId } = useAuthStore();
+  } = useChatStore(
+    (state) => ({
+      selectedUser: state.selectedUser,
+      setSelectedUser: state.setSelectedUser,
+      typingByUserId: state.typingByUserId,
+      replyToMessage: state.replyToMessage,
+      clearReplyToMessage: state.clearReplyToMessage,
+    }),
+    shallow
+  );
+  const { onlineUsers, lastSeenByUserId, presenceByUserId } = useAuthStore(
+    (state) => ({
+      onlineUsers: state.onlineUsers,
+      lastSeenByUserId: state.lastSeenByUserId,
+      presenceByUserId: state.presenceByUserId,
+    }),
+    shallow
+  );
   const isOnline = onlineUsers?.includes(selectedUser._id);
   const isTyping = typingByUserId[selectedUser._id];
   const lastSeen =

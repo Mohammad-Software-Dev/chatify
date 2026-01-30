@@ -3,6 +3,7 @@ import { useChatStore } from "../store/useChatStore";
 import UsersLoadingSkeleton from "./UsersLoadingSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
 import { SearchIcon, XIcon } from "lucide-react";
+import { shallow } from "zustand/shallow";
 
 function ContactList() {
   const {
@@ -11,13 +12,30 @@ function ContactList() {
     setSelectedUser,
     isContactSearching,
     unreadByUserId,
-  } = useChatStore();
-  const { onlineUsers } = useAuthStore();
+  } = useChatStore(
+    (state) => ({
+      getAllContacts: state.getAllContacts,
+      allContacts: state.allContacts,
+      setSelectedUser: state.setSelectedUser,
+      isContactSearching: state.isContactSearching,
+      unreadByUserId: state.unreadByUserId,
+    }),
+    shallow
+  );
+  const { onlineUsers } = useAuthStore(
+    (state) => ({ onlineUsers: state.onlineUsers }),
+    shallow
+  );
   const [query, setQuery] = useState("");
 
   useEffect(() => {
+    const trimmed = query.trim();
     const timer = setTimeout(() => {
-      getAllContacts(query);
+      if (trimmed.length < 3) {
+        getAllContacts("");
+        return;
+      }
+      getAllContacts(trimmed);
     }, 300);
     return () => clearTimeout(timer);
   }, [getAllContacts, query]);

@@ -10,6 +10,7 @@ import {
   AlertTriangleIcon,
 } from "lucide-react";
 import { axiosInstance } from "../lib/axios";
+import { shallow } from "zustand/shallow";
 
 const MAX_ATTACHMENTS = 4;
 const MAX_CONCURRENT_UPLOADS = 2;
@@ -57,8 +58,19 @@ function MessageInput() {
     emitTypingStop,
     replyToMessage,
     clearReplyToMessage,
-  } = useChatStore();
-  const { selectedUser } = useChatStore();
+    selectedUser,
+  } = useChatStore(
+    (state) => ({
+      sendMessage: state.sendMessage,
+      isSoundEnabled: state.isSoundEnabled,
+      emitTypingStart: state.emitTypingStart,
+      emitTypingStop: state.emitTypingStop,
+      replyToMessage: state.replyToMessage,
+      clearReplyToMessage: state.clearReplyToMessage,
+      selectedUser: state.selectedUser,
+    }),
+    shallow
+  );
   const typingStopTimerRef = useRef(null);
   const lastTypingEmitRef = useRef(0);
 

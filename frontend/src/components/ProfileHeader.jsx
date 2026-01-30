@@ -9,12 +9,27 @@ import {
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 import { axiosInstance } from "../lib/axios";
+import { shallow } from "zustand/shallow";
 
 const mouseClickSound = new Audio("/sounds/mouse-click.mp3");
 
 function ProfileHeader() {
-  const { logout, authUser, updateProfile, updateUsername } = useAuthStore();
-  const { isSoundEnabled, toggleSound } = useChatStore();
+  const { logout, authUser, updateProfile, updateUsername } = useAuthStore(
+    (state) => ({
+      logout: state.logout,
+      authUser: state.authUser,
+      updateProfile: state.updateProfile,
+      updateUsername: state.updateUsername,
+    }),
+    shallow
+  );
+  const { isSoundEnabled, toggleSound } = useChatStore(
+    (state) => ({
+      isSoundEnabled: state.isSoundEnabled,
+      toggleSound: state.toggleSound,
+    }),
+    shallow
+  );
   const [selectedImg, setSelectedImg] = useState(null);
   const [usernameInput, setUsernameInput] = useState(authUser?.username || "");
   const [usernameStatus, setUsernameStatus] = useState("unchecked");
