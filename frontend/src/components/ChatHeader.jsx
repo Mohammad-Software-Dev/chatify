@@ -8,14 +8,14 @@ function ChatHeader() {
   const {
     selectedUser,
     setSelectedUser,
-    typingByUserId,
+    isTyping,
     replyToMessage,
     clearReplyToMessage,
   } = useChatStore(
     (state) => ({
       selectedUser: state.selectedUser,
       setSelectedUser: state.setSelectedUser,
-      typingByUserId: state.typingByUserId,
+      isTyping: state.typingByUserId?.[state.selectedUser?._id] || false,
       replyToMessage: state.replyToMessage,
       clearReplyToMessage: state.clearReplyToMessage,
     }),
@@ -32,7 +32,6 @@ function ChatHeader() {
   if (!selectedUser) return null;
 
   const isOnline = onlineUsers?.includes(selectedUser._id);
-  const isTyping = typingByUserId?.[selectedUser._id];
   const lastSeen =
     presenceByUserId?.[selectedUser._id]?.lastSeenAt ||
     lastSeenByUserId?.[selectedUser._id] ||

@@ -8,6 +8,7 @@ const QUEUE_STORAGE_KEY = "chatify.pendingQueue";
 const MAX_RETRY_DELAY_MS = 30000;
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_RETRY_ATTEMPTS = 3;
+const typingTimeouts = new Map();
 
 const loadPendingQueue = () => {
   try {
@@ -991,21 +992,39 @@ export const useChatStore = create((set, get) => ({
 
     socket.on("typing:start", ({ fromUserId }) => {
       if (!fromUserId) return;
-      set((state) => ({
-        typingByUserId: { ...state.typingByUserId, [fromUserId]: true },
-      }));
-      setTimeout(() => {
-        set((state) => ({
-          typingByUserId: { ...state.typingByUserId, [fromUserId]: false },
-        }));
+      set((state) => {
+        if (state.typingByUserId[fromUserId]) return state;
+        return {
+          typingByUserId: { ...state.typingByUserId, [fromUserId]: true },
+        };
+      });
+      if (typingTimeouts.has(fromUserId)) {
+        clearTimeout(typingTimeouts.get(fromUserId));
+      }
+      const timeoutId = setTimeout(() => {
+        set((state) => {
+          if (!state.typingByUserId[fromUserId]) return state;
+          return {
+            typingByUserId: { ...state.typingByUserId, [fromUserId]: false },
+          };
+        });
+        typingTimeouts.delete(fromUserId);
       }, 3000);
+      typingTimeouts.set(fromUserId, timeoutId);
     });
 
     socket.on("typing:stop", ({ fromUserId }) => {
       if (!fromUserId) return;
-      set((state) => ({
-        typingByUserId: { ...state.typingByUserId, [fromUserId]: false },
-      }));
+      if (typingTimeouts.has(fromUserId)) {
+        clearTimeout(typingTimeouts.get(fromUserId));
+        typingTimeouts.delete(fromUserId);
+      }
+      set((state) => {
+        if (!state.typingByUserId[fromUserId]) return state;
+        return {
+          typingByUserId: { ...state.typingByUserId, [fromUserId]: false },
+        };
+      });
     });
   },
 

@@ -1,4 +1,14 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { VariableSizeList as List } from "react-window";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 import ChatHeader from "./ChatHeader";
@@ -28,7 +38,7 @@ function ChatContainer() {
     loadOlderMessages,
     isLoadingMoreMessages,
     hasMoreMessages,
-    typingByUserId,
+    isTyping,
     setReplyToMessage,
     addReaction,
     editMessage,
@@ -57,7 +67,7 @@ function ChatContainer() {
       loadOlderMessages: state.loadOlderMessages,
       isLoadingMoreMessages: state.isLoadingMoreMessages,
       hasMoreMessages: state.hasMoreMessages,
-      typingByUserId: state.typingByUserId,
+      isTyping: state.typingByUserId?.[state.selectedUser?._id] || false,
       setReplyToMessage: state.setReplyToMessage,
       addReaction: state.addReaction,
       editMessage: state.editMessage,
@@ -84,29 +94,31 @@ function ChatContainer() {
     (state) => ({ authUser: state.authUser }),
     shallow
   );
-  const messagesContainerRef = useRef(null);
+  const listRef = useRef(null);
+  const listOuterRef = useRef(null);
+  const listWrapperRef = useRef(null);
   const isPrependingRef = useRef(false);
   const hasInitialScrollRef = useRef(false);
   const isAtBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
-  const isTyping = typingByUserId?.[selectedUser?._id];
-  const [renderLimit, setRenderLimit] = useState(60);
+  const [listHeight, setListHeight] = useState(0);
   const [detailsMessageId, setDetailsMessageId] = useState(null);
   const longPressTimerRef = useRef(null);
   const [highlightMessageId, setHighlightMessageId] = useState(null);
-  const messageRefs = useRef(new Map());
+  const messageIdToIndexRef = useRef(new Map());
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [editingText, setEditingText] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState("all");
+  const sizeMapRef = useRef(new Map());
 
-  const visibleMessages = useMemo(() => {
-    const startIndex =
-      hasMoreMessages && messages.length > renderLimit
-        ? messages.length - renderLimit
-        : 0;
-    return messages.slice(startIndex);
-  }, [messages, hasMoreMessages, renderLimit]);
+  const messageIdToIndex = useMemo(() => {
+    const map = new Map();
+    messages.forEach((msg, index) => {
+      map.set(String(msg._id), index);
+    });
+    return map;
+  }, [messages]);
 
   const getMessageTime = (msg) =>
     msg?.createdAt || msg?.sentAt || msg?.updatedAt || msg?.deliveredAt || null;
@@ -120,8 +132,46 @@ function ChatContainer() {
   };
 
   useEffect(() => {
+    messageIdToIndexRef.current = messageIdToIndex;
+  }, [messageIdToIndex]);
+
+  useLayoutEffect(() => {
+    if (!listWrapperRef.current) return;
+    const update = () => {
+      setListHeight(listWrapperRef.current.clientHeight || 0);
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(listWrapperRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    sizeMapRef.current.clear();
+    listRef.current?.resetAfterIndex(0, true);
+  }, [messages.length, messages[0]?._id]);
+
+  const setRowSize = useCallback((index, size) => {
+    if (!Number.isFinite(size)) return;
+    const current = sizeMapRef.current.get(index);
+    if (current === size) return;
+    sizeMapRef.current.set(index, size);
+    listRef.current?.resetAfterIndex(index);
+  }, []);
+
+  const getItemSize = useCallback(
+    (index) => {
+      if (isTyping && index === messages.length) {
+        return 64;
+      }
+      return sizeMapRef.current.get(index) || 120;
+    },
+    [isTyping, messages.length]
+  );
+
+  useEffect(() => {
     getMessagesByUserId(selectedUser._id);
-    setRenderLimit(60);
     hasInitialScrollRef.current = false;
     setSearchQuery("");
     setViewMode("all");
@@ -168,11 +218,11 @@ function ChatContainer() {
 
   useLayoutEffect(() => {
     if (isPrependingRef.current) return;
-    const container = messagesContainerRef.current;
-    if (!container || hasInitialScrollRef.current) return;
+    if (!listRef.current || hasInitialScrollRef.current) return;
     const scrollToBottom = () => {
-      container.scrollTop = container.scrollHeight;
+      listRef.current?.scrollToItem(messages.length - 1, "end");
     };
+    if (messages.length === 0) return;
     scrollToBottom();
     requestAnimationFrame(scrollToBottom);
     setTimeout(scrollToBottom, 0);
@@ -180,66 +230,58 @@ function ChatContainer() {
   }, [messages]);
 
   useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (!container || isPrependingRef.current) return;
+    const outer = listOuterRef.current;
+    if (!outer || isPrependingRef.current) return;
     const prevCount = prevMessageCountRef.current;
     const isNewMessage = messages.length > prevCount;
 
     if (isNewMessage && isAtBottomRef.current) {
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: "smooth",
-      });
+      listRef.current?.scrollToItem(messages.length - 1, "end");
     }
 
     prevMessageCountRef.current = messages.length;
   }, [messages]);
 
   useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
+    const outer = listOuterRef.current;
+    if (!outer || !listRef.current) return;
     if (isTyping && isAtBottomRef.current) {
       const scrollToBottom = () => {
-        container.scrollTo({
-          top: container.scrollHeight,
-          behavior: "smooth",
-        });
+        listRef.current?.scrollToItem(messages.length - 1, "end");
       };
       scrollToBottom();
       requestAnimationFrame(scrollToBottom);
       setTimeout(scrollToBottom, 200);
     }
-  }, [isTyping]);
+  }, [isTyping, messages.length]);
 
   const handleLoadOlderMessages = async () => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
+    const outer = listOuterRef.current;
+    if (!outer) return;
 
-    const prevScrollHeight = container.scrollHeight;
-    const prevScrollTop = container.scrollTop;
+    const prevScrollHeight = outer.scrollHeight;
+    const prevScrollTop = outer.scrollTop;
     isPrependingRef.current = true;
 
     await loadOlderMessages();
-    setRenderLimit((prev) => prev + 20);
 
     requestAnimationFrame(() => {
-      const updatedContainer = messagesContainerRef.current;
-      if (!updatedContainer) return;
-      const newScrollHeight = updatedContainer.scrollHeight;
-      updatedContainer.scrollTop =
+      const updatedOuter = listOuterRef.current;
+      if (!updatedOuter) return;
+      const newScrollHeight = updatedOuter.scrollHeight;
+      updatedOuter.scrollTop =
         newScrollHeight - prevScrollHeight + prevScrollTop;
       isPrependingRef.current = false;
     });
   };
-  const handleScroll = () => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
+  const handleScroll = ({ scrollOffset }) => {
+    const outer = listOuterRef.current;
+    if (!outer) return;
     const atBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight <=
-      40;
+      outer.scrollHeight - scrollOffset - outer.clientHeight <= 40;
     isAtBottomRef.current = atBottom;
     if (
-      container.scrollTop <= 40 &&
+      scrollOffset <= 40 &&
       !isLoadingMoreMessages &&
       hasMoreMessages
     ) {
@@ -274,17 +316,19 @@ function ChatContainer() {
   };
 
   const scrollToMessage = async (messageId) => {
-    const node = messageRefs.current.get(messageId);
-    if (!node) {
+    const index = messageIdToIndexRef.current.get(String(messageId));
+    if (index === undefined) {
       const fetched = await fetchMessageById(messageId);
       if (!fetched) return;
       requestAnimationFrame(() => {
-        const target = messageRefs.current.get(messageId);
-        if (!target) {
+        const targetIndex = messageIdToIndexRef.current.get(
+          String(messageId)
+        );
+        if (targetIndex === undefined) {
           toast.error("Message not loaded yet");
           return;
         }
-        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        listRef.current?.scrollToItem(targetIndex, "center");
         setHighlightMessageId(messageId);
         setTimeout(() => {
           setHighlightMessageId((current) =>
@@ -294,7 +338,7 @@ function ChatContainer() {
       });
       return;
     }
-    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    listRef.current?.scrollToItem(index, "center");
     setHighlightMessageId(messageId);
     setTimeout(() => {
       setHighlightMessageId((current) =>
@@ -358,6 +402,457 @@ function ChatContainer() {
     }
     return null;
   };
+
+  const Row = memo(({ index, style }) => {
+    if (isTyping && index === messages.length) {
+      return (
+        <div style={style} className="px-6 pb-4">
+          <div
+            className={`typing-bubble ${
+              isTyping ? "typing-bubble--visible" : ""
+            }`}
+          >
+            <div className="chat chat-start">
+              <div className="chat-bubble bg-slate-800 text-slate-200">
+                <div className="typing-indicator">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const msg = messages[index];
+    if (!msg) return null;
+    const status = msg.status || "sent";
+    const isDeleted = Boolean(msg.deletedAt);
+    const reactions = Array.isArray(msg.reactions) ? msg.reactions : [];
+    const reactionCounts = reactions.reduce((acc, reaction) => {
+      if (!reaction?.emoji) return acc;
+      acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
+      return acc;
+    }, {});
+    const replyPreview = msg.replyPreview;
+    const showUploadProgress =
+      msg.isOptimistic &&
+      msg.uploadProgress !== null &&
+      msg.uploadProgress < 100;
+
+    const rowRef = useRef(null);
+
+    useLayoutEffect(() => {
+      if (!rowRef.current) return;
+      const measure = () => {
+        const height = rowRef.current.getBoundingClientRect().height;
+        setRowSize(index, height + 16);
+      };
+      measure();
+      if (typeof ResizeObserver === "undefined") return;
+      const observer = new ResizeObserver(measure);
+      observer.observe(rowRef.current);
+      return () => observer.disconnect();
+    }, [index, msg, setRowSize]);
+
+    return (
+      <div style={style} className="px-6 pb-4">
+        <div
+          ref={rowRef}
+          className={`chat ${
+            msg.senderId === authUser._id ? "chat-end" : "chat-start"
+          }`}
+        >
+          <div
+            className={`chat-bubble relative group ${
+              msg.senderId === authUser._id
+                ? "bg-cyan-600 text-white"
+                : "bg-slate-800 text-slate-200"
+            } ${highlightMessageId === msg._id ? "message-flash" : ""}`}
+            onClick={() => handleBubbleClick(msg)}
+            onTouchStart={() => handleTouchStart(msg)}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchEnd}
+          >
+            {!isDeleted && replyPreview && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  scrollToMessage(replyPreview._id);
+                }}
+                className="mb-2 w-full rounded-md border border-slate-700/50 bg-slate-900/30 px-2 py-1 text-left text-xs text-slate-200 hover:bg-slate-900/50 transition-colors"
+              >
+                <div className="font-medium text-slate-300">Reply</div>
+                <div className="truncate">
+                  {replyPreview.deletedAt
+                    ? "Message deleted"
+                    : replyPreview.text ||
+                      (replyPreview.images?.length > 0 || replyPreview.image
+                        ? "Image"
+                        : "Message")}
+                </div>
+              </button>
+            )}
+            {isDeleted ? (
+              <p className="italic text-slate-300">Message deleted</p>
+            ) : (
+              (() => {
+                const images =
+                  msg.images?.length > 0
+                    ? msg.images
+                    : msg.image
+                    ? [msg.image]
+                    : [];
+                if (images.length === 0) return null;
+                if (images.length === 1) {
+                  return (
+                    <div className="relative">
+                      <img
+                        src={images[0]}
+                        alt="Shared"
+                        className="rounded-lg h-48 object-cover"
+                      />
+                      {showUploadProgress && (
+                        <div className="absolute inset-0 rounded-lg bg-slate-900/40 flex items-center justify-center">
+                          <span className="text-xs text-slate-100 font-medium">
+                            {msg.uploadProgress}%
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+                return (
+                  <div className="grid grid-cols-2 gap-2">
+                    {images.map((img) => (
+                      <div key={img} className="relative">
+                        <img
+                          src={img}
+                          alt="Shared"
+                          className="rounded-lg h-32 w-full object-cover"
+                        />
+                        {showUploadProgress && (
+                          <div className="absolute inset-0 rounded-lg bg-slate-900/40 flex items-center justify-center">
+                            <span className="text-xs text-slate-100 font-medium">
+                              {msg.uploadProgress}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()
+            )}
+            {!isDeleted && (
+              <>
+                {editingMessageId === msg._id ? (
+                  <div
+                    className="mt-2 space-y-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="text"
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                      className="w-full rounded-md bg-slate-900/40 border border-slate-700/60 px-2 py-1 text-slate-100 text-sm"
+                    />
+                    <div className="flex items-center gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const trimmed = editingText.trim();
+                          if (!trimmed) {
+                            toast.error("Message cannot be empty");
+                            return;
+                          }
+                          const ok = await editMessage(msg._id, trimmed);
+                          if (ok) {
+                            setEditingMessageId(null);
+                            setEditingText("");
+                          }
+                        }}
+                        className="px-2 py-1 rounded-md bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingMessageId(null);
+                          setEditingText("");
+                        }}
+                        className="px-2 py-1 rounded-md bg-slate-800/60 text-slate-200 hover:bg-slate-800"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : msg.text ? (
+                  <p className="mt-2">{msg.text}</p>
+                ) : null}
+              </>
+            )}
+            {!isDeleted && msg.linkPreview && (
+              <a
+                href={msg.linkPreview.url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 block rounded-lg border border-slate-700/50 bg-slate-900/30 p-2 text-sm text-slate-200"
+              >
+                {msg.linkPreview.image && (
+                  <img
+                    src={msg.linkPreview.image}
+                    alt={msg.linkPreview.title || "Preview"}
+                    className="w-full h-32 object-cover rounded-md mb-2"
+                  />
+                )}
+                <div className="font-medium">
+                  {msg.linkPreview.title || msg.linkPreview.url}
+                </div>
+                {msg.linkPreview.description && (
+                  <div className="text-xs text-slate-400">
+                    {msg.linkPreview.description}
+                  </div>
+                )}
+              </a>
+            )}
+            {msg.isOptimistic &&
+              msg.uploadProgress !== null &&
+              msg.uploadProgress < 100 && (
+                <div className="mt-2 h-1.5 rounded-full bg-slate-700/60 overflow-hidden">
+                  <div
+                    className="h-full bg-cyan-300"
+                    style={{ width: `${msg.uploadProgress}%` }}
+                  />
+                </div>
+              )}
+            {!isDeleted && Object.keys(reactionCounts).length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {Object.entries(reactionCounts).map(([emoji, count]) => (
+                  <span
+                    key={emoji}
+                    className="text-xs bg-slate-900/40 border border-slate-700/60 rounded-full px-2 py-0.5"
+                  >
+                    {emoji} {count}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="text-xs mt-1 opacity-75 flex items-center gap-1">
+              <span>
+                {new Date(
+                  getMessageTime(msg) || Date.now()
+                ).toLocaleTimeString(undefined, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+              {renderLocalStatus(msg)}
+              {!isDeleted && isPinnedByMe(msg) && (
+                <PinIcon className="w-3.5 h-3.5 text-cyan-200" />
+              )}
+              {!isDeleted && isStarredByMe(msg) && (
+                <StarIcon className="w-3.5 h-3.5 text-amber-200" />
+              )}
+              {!isDeleted && msg.editedAt && (
+                <span className="text-[11px] text-slate-200/70">Edited</span>
+              )}
+              {!isDeleted && (
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 ml-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setReplyToMessage(msg);
+                      focusMessageInput();
+                    }}
+                    className="text-slate-200/80 hover:text-white"
+                  >
+                    Reply
+                  </button>
+                  {msg.senderId === authUser._id && msg.text && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingMessageId(msg._id);
+                        setEditingText(msg.text || "");
+                      }}
+                      className="text-slate-200/80 hover:text-white"
+                    >
+                      Edit
+                    </button>
+                  )}
+                  {msg.senderId === authUser._id && (
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const ok = window.confirm("Delete this message?");
+                        if (!ok) return;
+                        const deleted = await deleteMessage(msg._id);
+                        if (deleted) {
+                          setEditingMessageId(null);
+                          setEditingText("");
+                        }
+                      }}
+                      className="text-rose-200/80 hover:text-rose-100"
+                    >
+                      Delete
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePin(msg._id);
+                    }}
+                    disabled={!canToggleMessage(msg)}
+                    className={`transition-colors ${
+                      isPinnedByMe(msg)
+                        ? "text-cyan-200"
+                        : "text-slate-200/70 hover:text-white"
+                    } ${
+                      !canToggleMessage(msg)
+                        ? "opacity-50 cursor-not-allowed"
+                        : ""
+                    }`}
+                    title={
+                      !canToggleMessage(msg)
+                        ? "Message not sent yet"
+                        : isPinnedByMe(msg)
+                        ? "Unpin"
+                        : "Pin"
+                    }
+                  >
+                    <PinIcon
+                      className={`w-4 h-4 ${
+                        isPinnedByMe(msg) ? "fill-current" : ""
+                      }`}
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleStar(msg._id);
+                    }}
+                    disabled={!canToggleMessage(msg)}
+                    className={`transition-colors ${
+                      isStarredByMe(msg)
+                        ? "text-amber-200"
+                        : "text-slate-200/70 hover:text-white"
+                    } ${
+                      !canToggleMessage(msg)
+                        ? "opacity-50 cursor-not-allowed"
+                        : ""
+                    }`}
+                    title={
+                      !canToggleMessage(msg)
+                        ? "Message not sent yet"
+                        : isStarredByMe(msg)
+                        ? "Unstar"
+                        : "Star"
+                    }
+                  >
+                    <StarIcon
+                      className={`w-4 h-4 ${
+                        isStarredByMe(msg) ? "fill-current" : ""
+                      }`}
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addReaction(msg._id, "👍");
+                    }}
+                    className="text-slate-200/80 hover:text-white"
+                  >
+                    👍
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addReaction(msg._id, "❤️");
+                    }}
+                    className="text-slate-200/80 hover:text-white"
+                  >
+                    ❤️
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addReaction(msg._id, "😂");
+                    }}
+                    className="text-slate-200/80 hover:text-white"
+                  >
+                    😂
+                  </button>
+                </span>
+              )}
+              {msg.senderId === authUser._id && (
+                <span
+                  className="flex items-center"
+                  title={
+                    status === "read"
+                      ? `Read ${new Date(
+                          msg.readAt || getMessageTime(msg) || Date.now()
+                        ).toLocaleTimeString(undefined, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}`
+                      : status === "delivered"
+                      ? `Delivered ${new Date(
+                          msg.deliveredAt || getMessageTime(msg) || Date.now()
+                        ).toLocaleTimeString(undefined, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}`
+                      : `Sent ${new Date(
+                          msg.sentAt || getMessageTime(msg) || Date.now()
+                        ).toLocaleTimeString(undefined, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}`
+                  }
+                >
+                  {status === "sent" ? (
+                    <Check className="w-4 h-4 text-slate-200" />
+                  ) : (
+                    <CheckCheck
+                      className={`w-4 h-4 ${
+                        status === "read"
+                          ? "text-green-400"
+                          : "text-slate-400"
+                      }`}
+                    />
+                  )}
+                </span>
+              )}
+            </div>
+            {!isDeleted &&
+              msg.senderId === authUser._id &&
+              detailsMessageId === msg._id && (
+                <div className="mt-2 text-xs text-slate-200/80">
+                  <div>Sent: {formatTime(msg.sentAt)}</div>
+                  <div>Delivered: {formatTime(msg.deliveredAt)}</div>
+                  <div>Read: {formatTime(msg.readAt)}</div>
+                </div>
+              )}
+          </div>
+        </div>
+      </div>
+    );
+  });
+
+  Row.displayName = "ChatMessageRow";
 
   return (
     <>
@@ -475,470 +970,33 @@ function ChatContainer() {
           </div>
         </div>
       )}
-      <div
-        ref={messagesContainerRef}
-        onScroll={handleScroll}
-        className="flex-1 px-6 overflow-y-auto py-8"
-      >
+      <div className="flex-1 overflow-hidden">
         {messages.length > 0 && !isMessagesLoading ? (
-          <div className="max-w-3xl mx-auto space-y-4">
+          <div ref={listWrapperRef} className="h-full pt-4">
             {isLoadingMoreMessages && (
-              <div className="flex justify-center text-slate-400 text-sm">
+              <div className="flex justify-center text-slate-400 text-sm py-2">
                 Loading older messages...
               </div>
             )}
-            {visibleMessages.map((msg) => {
-                const status = msg.status || "sent";
-                const isDeleted = Boolean(msg.deletedAt);
-                const reactions = Array.isArray(msg.reactions)
-                  ? msg.reactions
-                  : [];
-                const reactionCounts = reactions.reduce((acc, reaction) => {
-                  if (!reaction?.emoji) return acc;
-                  acc[reaction.emoji] = (acc[reaction.emoji] || 0) + 1;
-                  return acc;
-                }, {});
-                const replyPreview = msg.replyPreview;
-                const showUploadProgress =
-                  msg.isOptimistic &&
-                  msg.uploadProgress !== null &&
-                  msg.uploadProgress < 100;
-                return (
-                  <div
-                    key={msg._id}
-                    className={`chat ${
-                      msg.senderId === authUser._id ? "chat-end" : "chat-start"
-                    }`}
-                    ref={(node) => {
-                      if (node) {
-                        messageRefs.current.set(msg._id, node);
-                      } else {
-                        messageRefs.current.delete(msg._id);
-                      }
-                    }}
-                  >
-                    <div
-                      className={`chat-bubble relative group ${
-                        msg.senderId === authUser._id
-                          ? "bg-cyan-600 text-white"
-                          : "bg-slate-800 text-slate-200"
-                      } ${
-                        highlightMessageId === msg._id ? "message-flash" : ""
-                      }`}
-                      onClick={() => handleBubbleClick(msg)}
-                      onTouchStart={() => handleTouchStart(msg)}
-                      onTouchEnd={handleTouchEnd}
-                      onTouchCancel={handleTouchEnd}
-                    >
-                      {!isDeleted && replyPreview && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            scrollToMessage(replyPreview._id);
-                          }}
-                          className="mb-2 w-full rounded-md border border-slate-700/50 bg-slate-900/30 px-2 py-1 text-left text-xs text-slate-200 hover:bg-slate-900/50 transition-colors"
-                        >
-                          <div className="font-medium text-slate-300">
-                            Reply
-                          </div>
-                          <div className="truncate">
-                            {replyPreview.deletedAt
-                              ? "Message deleted"
-                              : replyPreview.text ||
-                                (replyPreview.images?.length > 0 ||
-                                replyPreview.image
-                                  ? "Image"
-                                  : "Message")}
-                          </div>
-                        </button>
-                      )}
-                      {isDeleted ? (
-                        <p className="italic text-slate-300">Message deleted</p>
-                      ) : (
-                        (() => {
-                          const images =
-                            msg.images?.length > 0
-                              ? msg.images
-                              : msg.image
-                              ? [msg.image]
-                              : [];
-                          if (images.length === 0) return null;
-                          if (images.length === 1) {
-                            return (
-                              <div className="relative">
-                                <img
-                                  src={images[0]}
-                                  alt="Shared"
-                                  className="rounded-lg h-48 object-cover"
-                                />
-                                {showUploadProgress && (
-                                  <div className="absolute inset-0 rounded-lg bg-slate-900/40 flex items-center justify-center">
-                                    <span className="text-xs text-slate-100 font-medium">
-                                      {msg.uploadProgress}%
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          }
-                          return (
-                            <div className="grid grid-cols-2 gap-2">
-                              {images.map((img) => (
-                                <div key={img} className="relative">
-                                  <img
-                                    src={img}
-                                    alt="Shared"
-                                    className="rounded-lg h-32 w-full object-cover"
-                                  />
-                                  {showUploadProgress && (
-                                    <div className="absolute inset-0 rounded-lg bg-slate-900/40 flex items-center justify-center">
-                                      <span className="text-xs text-slate-100 font-medium">
-                                        {msg.uploadProgress}%
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })()
-                      )}
-                      {!isDeleted && (
-                        <>
-                          {editingMessageId === msg._id ? (
-                            <div
-                              className="mt-2 space-y-2"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <input
-                                type="text"
-                                value={editingText}
-                                onChange={(e) =>
-                                  setEditingText(e.target.value)
-                                }
-                                className="w-full rounded-md bg-slate-900/40 border border-slate-700/60 px-2 py-1 text-slate-100 text-sm"
-                              />
-                              <div className="flex items-center gap-2 text-xs">
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    const trimmed = editingText.trim();
-                                    if (!trimmed) {
-                                      toast.error("Message cannot be empty");
-                                      return;
-                                    }
-                                    const ok = await editMessage(
-                                      msg._id,
-                                      trimmed
-                                    );
-                                    if (ok) {
-                                      setEditingMessageId(null);
-                                      setEditingText("");
-                                    }
-                                  }}
-                                  className="px-2 py-1 rounded-md bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30"
-                                >
-                                  Save
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingMessageId(null);
-                                    setEditingText("");
-                                  }}
-                                  className="px-2 py-1 rounded-md bg-slate-800/60 text-slate-200 hover:bg-slate-800"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          ) : msg.text ? (
-                            <p className="mt-2">{msg.text}</p>
-                          ) : null}
-                        </>
-                      )}
-                      {!isDeleted && msg.linkPreview && (
-                        <a
-                          href={msg.linkPreview.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-2 block rounded-lg border border-slate-700/50 bg-slate-900/30 p-2 text-sm text-slate-200"
-                        >
-                          {msg.linkPreview.image && (
-                            <img
-                              src={msg.linkPreview.image}
-                              alt={msg.linkPreview.title || "Preview"}
-                              className="w-full h-32 object-cover rounded-md mb-2"
-                            />
-                          )}
-                          <div className="font-medium">
-                            {msg.linkPreview.title || msg.linkPreview.url}
-                          </div>
-                          {msg.linkPreview.description && (
-                            <div className="text-xs text-slate-400">
-                              {msg.linkPreview.description}
-                            </div>
-                          )}
-                        </a>
-                      )}
-                      {msg.isOptimistic &&
-                        msg.uploadProgress !== null &&
-                        msg.uploadProgress < 100 && (
-                          <div className="mt-2 h-1.5 rounded-full bg-slate-700/60 overflow-hidden">
-                            <div
-                              className="h-full bg-cyan-300"
-                              style={{ width: `${msg.uploadProgress}%` }}
-                            />
-                          </div>
-                        )}
-                      {!isDeleted && Object.keys(reactionCounts).length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {Object.entries(reactionCounts).map(
-                            ([emoji, count]) => (
-                              <span
-                                key={emoji}
-                                className="text-xs bg-slate-900/40 border border-slate-700/60 rounded-full px-2 py-0.5"
-                              >
-                                {emoji} {count}
-                              </span>
-                            )
-                          )}
-                        </div>
-                      )}
-                      <div className="text-xs mt-1 opacity-75 flex items-center gap-1">
-                        <span>
-                          {new Date(
-                            getMessageTime(msg) || Date.now()
-                          ).toLocaleTimeString(undefined, {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                        {renderLocalStatus(msg)}
-                        {!isDeleted && isPinnedByMe(msg) && (
-                          <PinIcon className="w-3.5 h-3.5 text-cyan-200" />
-                        )}
-                        {!isDeleted && isStarredByMe(msg) && (
-                          <StarIcon className="w-3.5 h-3.5 text-amber-200" />
-                        )}
-                        {!isDeleted && msg.editedAt && (
-                          <span className="text-[11px] text-slate-200/70">
-                            Edited
-                          </span>
-                        )}
-                      {!isDeleted && (
-                        <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 ml-2">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setReplyToMessage(msg);
-                              focusMessageInput();
-                            }}
-                            className="text-slate-200/80 hover:text-white"
-                          >
-                              Reply
-                            </button>
-                            {msg.senderId === authUser._id && msg.text && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingMessageId(msg._id);
-                                  setEditingText(msg.text || "");
-                                }}
-                                className="text-slate-200/80 hover:text-white"
-                              >
-                                Edit
-                              </button>
-                            )}
-                            {msg.senderId === authUser._id && (
-                              <button
-                                type="button"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  const ok = window.confirm(
-                                    "Delete this message?"
-                                  );
-                                  if (!ok) return;
-                                  const deleted = await deleteMessage(msg._id);
-                                  if (deleted) {
-                                    setEditingMessageId(null);
-                                    setEditingText("");
-                                  }
-                                }}
-                                className="text-rose-200/80 hover:text-rose-100"
-                              >
-                                Delete
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                togglePin(msg._id);
-                              }}
-                              disabled={!canToggleMessage(msg)}
-                              className={`transition-colors ${
-                                isPinnedByMe(msg)
-                                  ? "text-cyan-200"
-                                  : "text-slate-200/70 hover:text-white"
-                              } ${
-                                !canToggleMessage(msg)
-                                  ? "opacity-50 cursor-not-allowed"
-                                  : ""
-                              }`}
-                              title={
-                                !canToggleMessage(msg)
-                                  ? "Message not sent yet"
-                                  : isPinnedByMe(msg)
-                                  ? "Unpin"
-                                  : "Pin"
-                              }
-                            >
-                              <PinIcon
-                                className={`w-4 h-4 ${
-                                  isPinnedByMe(msg) ? "fill-current" : ""
-                                }`}
-                              />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleStar(msg._id);
-                              }}
-                              disabled={!canToggleMessage(msg)}
-                              className={`transition-colors ${
-                                isStarredByMe(msg)
-                                  ? "text-amber-200"
-                                  : "text-slate-200/70 hover:text-white"
-                              } ${
-                                !canToggleMessage(msg)
-                                  ? "opacity-50 cursor-not-allowed"
-                                  : ""
-                              }`}
-                              title={
-                                !canToggleMessage(msg)
-                                  ? "Message not sent yet"
-                                  : isStarredByMe(msg)
-                                  ? "Unstar"
-                                  : "Star"
-                              }
-                            >
-                              <StarIcon
-                                className={`w-4 h-4 ${
-                                  isStarredByMe(msg) ? "fill-current" : ""
-                                }`}
-                              />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                addReaction(msg._id, "👍");
-                              }}
-                              className="text-slate-200/80 hover:text-white"
-                            >
-                              👍
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                addReaction(msg._id, "❤️");
-                              }}
-                              className="text-slate-200/80 hover:text-white"
-                            >
-                              ❤️
-                            </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              addReaction(msg._id, "😂");
-                            }}
-                            className="text-slate-200/80 hover:text-white"
-                          >
-                            😂
-                          </button>
-                        </span>
-                      )}
-                        {msg.senderId === authUser._id && (
-                          <span
-                            className="flex items-center"
-                            title={
-                              status === "read"
-                                ? `Read ${new Date(
-                                    msg.readAt ||
-                                      getMessageTime(msg) ||
-                                      Date.now()
-                                  ).toLocaleTimeString(undefined, {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}`
-                                : status === "delivered"
-                                ? `Delivered ${new Date(
-                                    msg.deliveredAt ||
-                                      getMessageTime(msg) ||
-                                      Date.now()
-                                  ).toLocaleTimeString(undefined, {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}`
-                                : `Sent ${new Date(
-                                    msg.sentAt ||
-                                      getMessageTime(msg) ||
-                                      Date.now()
-                                  ).toLocaleTimeString(undefined, {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}`
-                            }
-                          >
-                            {status === "sent" ? (
-                              <Check className="w-4 h-4 text-slate-200" />
-                            ) : (
-                              <CheckCheck
-                                className={`w-4 h-4 ${
-                                  status === "read"
-                                    ? "text-green-400"
-                                    : "text-slate-400"
-                                }`}
-                              />
-                            )}
-                          </span>
-                        )}
-                      </div>
-                      {!isDeleted &&
-                        msg.senderId === authUser._id &&
-                        detailsMessageId === msg._id && (
-                          <div className="mt-2 text-xs text-slate-200/80">
-                            <div>Sent: {formatTime(msg.sentAt)}</div>
-                            <div>Delivered: {formatTime(msg.deliveredAt)}</div>
-                            <div>Read: {formatTime(msg.readAt)}</div>
-                          </div>
-                        )}
-                    </div>
-                  </div>
-                );
-              })}
-            <div
-              className={`typing-bubble ${
-                isTyping ? "typing-bubble--visible" : ""
-              }`}
-            >
-              <div className="chat chat-start">
-                <div className="chat-bubble bg-slate-800 text-slate-200">
-                  <div className="typing-indicator">
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                </div>
-              </div>
-            </div>
+            {listHeight > 0 && (
+              <List
+                ref={listRef}
+                outerRef={listOuterRef}
+                height={listHeight}
+                width="100%"
+                itemCount={messages.length + (isTyping ? 1 : 0)}
+                itemSize={getItemSize}
+                onScroll={handleScroll}
+                itemKey={(index) => {
+                  if (isTyping && index === messages.length) {
+                    return "typing-indicator";
+                  }
+                  return messages[index]?._id || index;
+                }}
+              >
+                {Row}
+              </List>
+            )}
           </div>
         ) : isMessagesLoading ? (
           <MessagesLoadingSkeleton />
