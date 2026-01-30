@@ -29,14 +29,16 @@ function ChatHeader() {
     }),
     shallow
   );
+  if (!selectedUser) return null;
+
   const isOnline = onlineUsers?.includes(selectedUser._id);
-  const isTyping = typingByUserId[selectedUser._id];
+  const isTyping = typingByUserId?.[selectedUser._id];
   const lastSeen =
-    presenceByUserId[selectedUser._id]?.lastSeenAt ||
-    lastSeenByUserId[selectedUser._id] ||
+    presenceByUserId?.[selectedUser._id]?.lastSeenAt ||
+    lastSeenByUserId?.[selectedUser._id] ||
     selectedUser.lastSeenAt;
   const lastActiveAt =
-    presenceByUserId[selectedUser._id]?.lastActiveAt ||
+    presenceByUserId?.[selectedUser._id]?.lastActiveAt ||
     selectedUser.lastActiveAt;
   const isActiveNow = lastActiveAt
     ? Date.now() - new Date(lastActiveAt).getTime() < 45000

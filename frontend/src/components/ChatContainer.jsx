@@ -89,7 +89,7 @@ function ChatContainer() {
   const hasInitialScrollRef = useRef(false);
   const isAtBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
-  const isTyping = typingByUserId[selectedUser._id];
+  const isTyping = typingByUserId?.[selectedUser?._id];
   const [renderLimit, setRenderLimit] = useState(60);
   const [detailsMessageId, setDetailsMessageId] = useState(null);
   const longPressTimerRef = useRef(null);
