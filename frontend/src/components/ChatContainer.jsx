@@ -404,7 +404,24 @@ function ChatContainer() {
   };
 
   const Row = memo(({ index, style }) => {
-    if (isTyping && index === messages.length) {
+    const rowRef = useRef(null);
+    const isTypingRow = isTyping && index === messages.length;
+    const msg = isTypingRow ? null : messages[index];
+
+    useLayoutEffect(() => {
+      if (!rowRef.current || isTypingRow || !msg) return;
+      const measure = () => {
+        const height = rowRef.current.getBoundingClientRect().height;
+        setRowSize(index, height + 16);
+      };
+      measure();
+      if (typeof ResizeObserver === "undefined") return;
+      const observer = new ResizeObserver(measure);
+      observer.observe(rowRef.current);
+      return () => observer.disconnect();
+    }, [index, msg?._id, isTypingRow, setRowSize]);
+
+    if (isTypingRow) {
       return (
         <div style={style} className="px-6 pb-4">
           <div
@@ -426,7 +443,6 @@ function ChatContainer() {
       );
     }
 
-    const msg = messages[index];
     if (!msg) return null;
     const status = msg.status || "sent";
     const isDeleted = Boolean(msg.deletedAt);
@@ -441,21 +457,6 @@ function ChatContainer() {
       msg.isOptimistic &&
       msg.uploadProgress !== null &&
       msg.uploadProgress < 100;
-
-    const rowRef = useRef(null);
-
-    useLayoutEffect(() => {
-      if (!rowRef.current) return;
-      const measure = () => {
-        const height = rowRef.current.getBoundingClientRect().height;
-        setRowSize(index, height + 16);
-      };
-      measure();
-      if (typeof ResizeObserver === "undefined") return;
-      const observer = new ResizeObserver(measure);
-      observer.observe(rowRef.current);
-      return () => observer.disconnect();
-    }, [index, msg, setRowSize]);
 
     return (
       <div style={style} className="px-6 pb-4">
