@@ -109,18 +109,15 @@ function ChatContainer() {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState("all");
   const [hasNewMessages, setHasNewMessages] = useState(false);
+  const [isInitialPositioned, setIsInitialPositioned] = useState(false);
   const sizeMapRef = useRef(new Map());
-
-  const getLastIndex = useCallback(() => {
-    const extra = isTyping ? 1 : 0;
-    return Math.max(messages.length + extra - 1, 0);
-  }, [isTyping, messages.length]);
 
   const scrollToLatest = useCallback(() => {
     if (!listRef.current) return;
     if (messages.length === 0) return;
-    listRef.current.scrollToItem(getLastIndex(), "end");
-  }, [getLastIndex, messages.length]);
+    const lastIndex = messages.length - 1 + (isTyping ? 1 : 0);
+    listRef.current.scrollToItem(lastIndex, "end");
+  }, [messages.length, isTyping]);
 
   const messageIdToIndex = useMemo(() => {
     const map = new Map();
@@ -173,7 +170,7 @@ function ChatContainer() {
   useEffect(() => {
     sizeMapRef.current.clear();
     listRef.current?.resetAfterIndex(0, true);
-  }, [messages.length, messages[0]?._id]);
+  }, [messages.length, messages[0]?._id, isTyping]);
 
   const setRowSize = useCallback((index, size) => {
     if (!Number.isFinite(size)) return;
@@ -201,6 +198,7 @@ function ChatContainer() {
     setSearchQuery("");
     setViewMode("all");
     setHasNewMessages(false);
+    setIsInitialPositioned(false);
     clearSearchResults();
   }, [selectedUser, getMessagesByUserId, clearSearchResults]);
 
@@ -246,21 +244,15 @@ function ChatContainer() {
     if (isPrependingRef.current) return;
     if (!listRef.current || hasInitialScrollRef.current) return;
     if (messages.length === 0) return;
-    scrollToLatest();
-    hasInitialScrollRef.current = true;
-  }, [messages.length, selectedUser?._id, scrollToLatest]);
-
-  useLayoutEffect(() => {
-    if (isPrependingRef.current) return;
-    if (hasInitialScrollRef.current) return;
-    if (messages.length === 0) return;
-    if (!listRef.current || listHeight === 0) return;
     const run = () => scrollToLatest();
     run();
     requestAnimationFrame(run);
     setTimeout(run, 0);
     hasInitialScrollRef.current = true;
-  }, [messages.length, listHeight, scrollToLatest]);
+    requestAnimationFrame(() => {
+      setIsInitialPositioned(true);
+    });
+  }, [messages.length, listHeight, selectedUser?._id, scrollToLatest]);
 
   useEffect(() => {
     const outer = listOuterRef.current;
@@ -1020,7 +1012,12 @@ function ChatContainer() {
       )}
       <div className="flex-1 overflow-hidden">
         {messages.length > 0 && !isMessagesLoading ? (
-          <div ref={listWrapperRef} className="h-full pt-4">
+          <div
+            ref={listWrapperRef}
+            className={`h-full pt-4 transition-opacity duration-150 ${
+              isInitialPositioned ? "opacity-100" : "opacity-0"
+            }`}
+          >
             {isLoadingMoreMessages && (
               <div className="flex justify-center text-slate-400 text-sm py-2">
                 Loading older messages...
