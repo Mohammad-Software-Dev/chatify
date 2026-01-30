@@ -7,6 +7,7 @@ import {
   updateProfile,
   checkUsername,
   checkAuth,
+  refreshSession,
 } from "../controllers/auth.controller.js";
 import { arcjetProtection } from "../middleware/arcjet.middleware.js";
 import { authLimiter } from "../middleware/rate-limit.middleware.js";
@@ -29,6 +30,8 @@ router.post("/login", validate(loginSchema), login);
 router.post("/logout", logout);
 
 router.get("/check-username", validate(checkUsernameSchema), checkUsername);
+
+router.post("/refresh", refreshSession);
 
 router.put(
   "/update-profile",

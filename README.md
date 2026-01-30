@@ -34,6 +34,8 @@ A real-time chat app with a React frontend and an Express + Socket.IO backend.
 - Route-level validation (Zod)
 - Arcjet protection + rate limiting for auth/search/uploads
 - Cookie settings configurable via env (`COOKIE_SAMESITE`, `COOKIE_SECURE`)
+- Session TTLs configurable via env (`JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`)
+- Optional at-rest AES-256-GCM encryption for message text/link previews
 
 ## Scripts
 Frontend:
@@ -58,3 +60,16 @@ Set these in `backend/.env`:
 - `ARCJET_ENV`
 - `COOKIE_SAMESITE` (optional)
 - `COOKIE_SECURE` (optional)
+- `COOKIE_DOMAIN` (optional)
+- `COOKIE_PATH` (optional)
+- `JWT_ACCESS_TTL` (optional, default `10m`)
+- `JWT_REFRESH_TTL` (optional, default `7d`)
+- `MESSAGE_ENC_KEY` (optional, 32-byte base64 or hex)
+- `MESSAGE_ENC_KEYS` (optional, key ring like `v1:base64key,v2:base64key`)
+- `MESSAGE_ENC_KEY_ID` (optional, current key ID used for new encryptions)
+- `MESSAGE_ENC_STORE_PLAINTEXT` (optional, set to `false` to avoid storing message text)
+
+## Maintenance
+Backend encryption helpers:
+- `node scripts/encrypt-messages.js` to encrypt historical plaintext messages
+- `node scripts/rotate-message-key.js` to re-encrypt messages with the current key

@@ -17,6 +17,11 @@ const messageSchema = new mongoose.Schema(
       trim: true,
       maxlength: 2000,
     },
+    textEnc: {
+      iv: String,
+      tag: String,
+      data: String,
+    },
     image: {
       type: String,
     },
@@ -76,6 +81,17 @@ const messageSchema = new mongoose.Schema(
       title: String,
       description: String,
       image: String,
+    },
+    linkPreviewEnc: {
+      iv: String,
+      tag: String,
+      data: String,
+    },
+    encKeyId: {
+      type: String,
+    },
+    encVersion: {
+      type: Number,
     },
     status: {
       type: String,

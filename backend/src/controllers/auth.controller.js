@@ -1,9 +1,16 @@
 import { sendWelcomeEmail } from "../emails/emailHandlers.js";
-import { generateToken } from "../lib/utils.js";
+import {
+  generateAccessToken,
+  generateRefreshToken,
+  setAuthCookies,
+  clearAuthCookies,
+} from "../lib/utils.js";
 import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import { ENV } from "../lib/env.js";
 import cloudinary from "../lib/cloudinary.js";
+import RefreshToken from "../models/RefreshToken.js";
+import jwt from "jsonwebtoken";
 
 const normalizeUsername = (username) => username?.trim().toLowerCase();
 
@@ -35,6 +42,21 @@ const ensureUsernameForUser = async (user) => {
   user.username = generated;
   await user.save();
   return user;
+};
+
+const saveRefreshToken = async (userId, tokenId, refreshToken) => {
+  const decoded = jwt.decode(refreshToken);
+  const expiresAt = decoded?.exp
+    ? new Date(decoded.exp * 1000)
+    : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  await RefreshToken.create({ userId, tokenId, expiresAt });
+};
+
+const issueAuthCookies = async (res, userId) => {
+  const accessToken = generateAccessToken(userId);
+  const { token: refreshToken, tokenId } = generateRefreshToken(userId);
+  await saveRefreshToken(userId, tokenId, refreshToken);
+  setAuthCookies(res, accessToken, refreshToken);
 };
 
 export const checkUsername = async (req, res) => {
@@ -131,7 +153,7 @@ export const signup = async (req, res) => {
       // after CR:
       // Persist user first, then issue auth cookie
       const savedUser = await newUser.save();
-      generateToken(savedUser._id, res);
+      await issueAuthCookies(res, savedUser._id);
 
       res.status(201).json({
         _id: newUser._id,
@@ -181,7 +203,7 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
-    generateToken(ensuredUser._id, res);
+    await issueAuthCookies(res, ensuredUser._id);
 
     res.status(200).json({
       _id: ensuredUser._id,
@@ -196,8 +218,19 @@ export const login = async (req, res) => {
   }
 };
 
-export const logout = (_, res) => {
-  res.cookie("jwt", "", { maxAge: 0 });
+export const logout = (req, res) => {
+  const refreshToken = req.cookies?.refresh;
+  if (refreshToken) {
+    try {
+      const decoded = jwt.verify(refreshToken, ENV.JWT_SECRET);
+      if (decoded?.tokenId) {
+        RefreshToken.deleteOne({ tokenId: decoded.tokenId }).catch(() => {});
+      }
+    } catch {
+      // ignore invalid refresh token
+    }
+  }
+  clearAuthCookies(res);
   res.status(200).json({ message: "Logged out successfully" });
 };
 
@@ -208,6 +241,37 @@ export const checkAuth = async (req, res) => {
   } catch (error) {
     console.log("Error in checkAuth controller:", error);
     res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const refreshSession = async (req, res) => {
+  try {
+    const token = req.cookies.refresh;
+    if (!token) {
+      return res.status(401).json({ message: "Unauthorized - No refresh token" });
+    }
+
+    const decoded = jwt.verify(token, ENV.JWT_SECRET);
+    if (!decoded?.tokenId) {
+      return res.status(401).json({ message: "Unauthorized - Invalid refresh token" });
+    }
+
+    const existing = await RefreshToken.findOne({
+      userId: decoded.userId,
+      tokenId: decoded.tokenId,
+    });
+    if (!existing) {
+      await RefreshToken.deleteMany({ userId: decoded.userId });
+      clearAuthCookies(res);
+      return res.status(401).json({ message: "Unauthorized - Token revoked" });
+    }
+
+    await RefreshToken.deleteOne({ _id: existing._id });
+    await issueAuthCookies(res, decoded.userId);
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    console.log("Error in refreshSession controller:", error.message);
+    res.status(401).json({ message: "Unauthorized - Refresh failed" });
   }
 };
 

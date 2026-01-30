@@ -36,6 +36,7 @@ function ChatContainer() {
     clearSearchResults,
     searchResults,
     isSearching,
+    searchError,
     pinnedMessages,
     starredMessages,
     loadPinnedMessages,
@@ -384,6 +385,9 @@ function ChatContainer() {
             {viewMode === "search" && isSearching && (
               <div className="text-xs text-slate-400">Searching...</div>
             )}
+            {viewMode === "search" && searchError && (
+              <div className="text-xs text-amber-300">{searchError}</div>
+            )}
             {(() => {
               const results =
                 viewMode === "search"
@@ -391,6 +395,9 @@ function ChatContainer() {
                   : viewMode === "pinned"
                   ? pinnedMessages
                   : starredMessages;
+              if (viewMode === "search" && searchError) {
+                return null;
+              }
               if (!results.length) {
                 return (
                   <div className="text-xs text-slate-400">

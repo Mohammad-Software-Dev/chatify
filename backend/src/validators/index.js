@@ -98,13 +98,6 @@ export const searchMessagesSchema = z.object({
   }),
 });
 
-export const searchAllMessagesSchema = z.object({
-  query: z.object({
-    q: z.string().min(1).max(100),
-    limit: z.string().optional(),
-  }),
-});
-
 export const contactsSchema = z.object({
   query: z.object({
     username: z.string().min(3).max(20).regex(usernameRegex),

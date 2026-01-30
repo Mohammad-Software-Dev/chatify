@@ -4,9 +4,47 @@ import Message from "../models/Message.js";
 import User from "../models/User.js";
 import Conversation from "../models/Conversation.js";
 import mongoose from "mongoose";
+import {
+  decryptJson,
+  decryptString,
+  encryptJson,
+  encryptString,
+  isMessageEncryptionEnabled,
+  shouldStoreMessagePlaintext,
+} from "../lib/messageCrypto.js";
 
 const getConversationKey = (userIdA, userIdB) =>
   [userIdA.toString(), userIdB.toString()].sort().join(":");
+
+const stripKeyId = (payload) => {
+  if (!payload) return null;
+  const { keyId, ...rest } = payload;
+  return rest;
+};
+
+const applyDecryptedFields = (message) => {
+  if (!message) return message;
+  if (!message.text && message.textEnc) {
+    const decrypted = decryptString(message.textEnc, message.encKeyId);
+    if (decrypted) {
+      message.text = decrypted;
+    }
+  }
+  if (!message.linkPreview && message.linkPreviewEnc) {
+    const decrypted = decryptJson(message.linkPreviewEnc, message.encKeyId);
+    if (decrypted) {
+      message.linkPreview = decrypted;
+    }
+  }
+  delete message.textEnc;
+  delete message.linkPreviewEnc;
+  delete message.encKeyId;
+  delete message.encVersion;
+  return message;
+};
+
+const applyDecryptedFieldsArray = (messages) =>
+  messages.map((message) => applyDecryptedFields(message));
 
 const extractFirstUrl = (text) => {
   if (!text) return null;
@@ -151,7 +189,7 @@ export const getMessagesByUserId = async (req, res) => {
 
     const messages = await Message.find(query)
       .select(
-        "senderId receiverId text image images replyToMessageId reactions pinnedBy starredBy editedAt deletedAt deletedBy linkPreview createdAt status sentAt deliveredAt readAt updatedAt"
+        "senderId receiverId text textEnc linkPreview linkPreviewEnc encKeyId encVersion image images replyToMessageId reactions pinnedBy starredBy editedAt deletedAt deletedBy createdAt status sentAt deliveredAt readAt updatedAt"
       )
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit)
@@ -178,7 +216,7 @@ export const getMessagesByUserId = async (req, res) => {
       .filter(Boolean);
     if (replyIds.length > 0) {
       const replyMessages = await Message.find({ _id: { $in: replyIds } })
-        .select("senderId text image images deletedAt")
+        .select("senderId text textEnc encKeyId image images deletedAt")
         .lean();
       const replyMap = new Map(
         replyMessages.map((msg) => [msg._id.toString(), msg])
@@ -187,6 +225,7 @@ export const getMessagesByUserId = async (req, res) => {
         if (!msg.replyToMessageId) return;
         const reply = replyMap.get(msg.replyToMessageId.toString());
         if (!reply) return;
+        applyDecryptedFields(reply);
         msg.replyPreview = {
           _id: reply._id,
           senderId: reply.senderId,
@@ -243,7 +282,7 @@ export const getMessagesByUserId = async (req, res) => {
       );
     }
 
-    res.status(200).json(normalizedMessages);
+    res.status(200).json(applyDecryptedFieldsArray(normalizedMessages));
   } catch (error) {
     console.log("Error in getMessages controller: ", error.message);
     res.status(500).json({ error: "Internal server error" });
@@ -257,7 +296,7 @@ export const getMessageById = async (req, res) => {
 
     const message = await Message.findById(messageId)
       .select(
-        "senderId receiverId text image images replyToMessageId reactions pinnedBy starredBy editedAt deletedAt deletedBy linkPreview createdAt status sentAt deliveredAt readAt updatedAt"
+        "senderId receiverId text textEnc linkPreview linkPreviewEnc encKeyId encVersion image images replyToMessageId reactions pinnedBy starredBy editedAt deletedAt deletedBy createdAt status sentAt deliveredAt readAt updatedAt"
       )
       .lean();
     if (!message) return res.status(404).json({ message: "Message not found" });
@@ -268,7 +307,7 @@ export const getMessageById = async (req, res) => {
       return res.status(403).json({ message: "Not allowed" });
     }
 
-    res.status(200).json(message);
+    res.status(200).json(applyDecryptedFields(message));
   } catch (error) {
     console.error("Error in getMessageById:", error.message);
     res.status(500).json({ error: "Internal server error" });
@@ -340,14 +379,28 @@ export const sendMessage = async (req, res) => {
       linkPreview = await fetchLinkPreview(url);
     }
 
+    const encryptionEnabled = isMessageEncryptionEnabled();
+    const storePlaintext = shouldStoreMessagePlaintext();
+    const rawTextEnc = encryptionEnabled ? encryptString(text) : null;
+    const rawLinkPreviewEnc = encryptionEnabled
+      ? encryptJson(linkPreview)
+      : null;
+    const encKeyId = rawTextEnc?.keyId || rawLinkPreviewEnc?.keyId || null;
+    const textEnc = stripKeyId(rawTextEnc);
+    const linkPreviewEnc = stripKeyId(rawLinkPreviewEnc);
+
     const newMessage = new Message({
       senderId,
       receiverId,
-      text,
+      text: storePlaintext ? text : "",
+      textEnc,
       image: imageUrl,
       images: imageUrls,
       replyToMessageId: replyTo?._id,
-      linkPreview,
+      linkPreview: storePlaintext ? linkPreview : null,
+      linkPreviewEnc,
+      encKeyId,
+      encVersion: textEnc || linkPreviewEnc ? 1 : undefined,
       status: isDelivered ? "delivered" : "sent",
       deliveredAt,
       sentAt: new Date(),
@@ -356,12 +409,13 @@ export const sendMessage = async (req, res) => {
 
     await newMessage.save();
 
-    let messagePayload = newMessage.toObject();
+    let messagePayload = applyDecryptedFields(newMessage.toObject());
     if (replyTo) {
       const replyMessage = await Message.findById(replyTo._id)
-        .select("senderId text image images deletedAt")
+        .select("senderId text textEnc encKeyId image images deletedAt")
         .lean();
       if (replyMessage) {
+        applyDecryptedFields(replyMessage);
         messagePayload.replyPreview = {
           _id: replyMessage._id,
           senderId: replyMessage.senderId,
@@ -383,7 +437,11 @@ export const sendMessage = async (req, res) => {
         },
         $set: {
           lastMessageAt: newMessage.createdAt,
-          lastMessageText: newMessage.text || "",
+          lastMessageText: storePlaintext
+            ? newMessage.text || ""
+            : text
+            ? "Encrypted message"
+            : "",
           lastMessageImage: newMessage.image || "",
           lastMessageImages: newMessage.images || [],
           lastMessageSenderId: senderId,
@@ -481,6 +539,12 @@ export const addReaction = async (req, res) => {
 
 export const searchMessages = async (req, res) => {
   try {
+    if (!shouldStoreMessagePlaintext()) {
+      return res.status(400).json({
+        message: "Message search is disabled when plaintext storage is off.",
+        code: "SEARCH_DISABLED",
+      });
+    }
     const myId = req.user._id;
     const { id: userToChatId } = req.params;
     const queryText = req.query.q?.trim();
@@ -504,47 +568,15 @@ export const searchMessages = async (req, res) => {
 
     const results = await Message.find(query)
       .select(
-        "senderId receiverId text image images pinnedBy starredBy createdAt sentAt updatedAt"
+        "senderId receiverId text textEnc linkPreview linkPreviewEnc encKeyId encVersion image images pinnedBy starredBy createdAt sentAt updatedAt"
       )
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit)
       .lean();
 
-    res.status(200).json(results);
+    res.status(200).json(applyDecryptedFieldsArray(results));
   } catch (error) {
     console.error("Error in searchMessages:", error.message);
-    res.status(500).json({ error: "Internal server error" });
-  }
-};
-
-export const searchAllMessages = async (req, res) => {
-  try {
-    const myId = req.user._id;
-    const queryText = req.query.q?.trim();
-    if (!queryText) return res.status(200).json([]);
-
-    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
-    const regex = new RegExp(escapeRegex(queryText), "i");
-
-    const results = await Message.find({
-      $and: [
-        {
-          $or: [{ senderId: myId }, { receiverId: myId }],
-        },
-        { text: { $regex: regex } },
-        { $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }] },
-      ],
-    })
-      .select(
-        "senderId receiverId text image images createdAt sentAt updatedAt"
-      )
-      .sort({ createdAt: -1, _id: -1 })
-      .limit(limit)
-      .lean();
-
-    res.status(200).json(results);
-  } catch (error) {
-    console.error("Error in searchAllMessages:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -567,12 +599,12 @@ export const getPinnedMessages = async (req, res) => {
       ],
     })
       .select(
-        "senderId receiverId text image images pinnedBy starredBy createdAt sentAt updatedAt"
+        "senderId receiverId text textEnc linkPreview linkPreviewEnc encKeyId encVersion image images pinnedBy starredBy createdAt sentAt updatedAt"
       )
       .sort({ createdAt: -1, _id: -1 })
       .lean();
 
-    res.status(200).json(results);
+    res.status(200).json(applyDecryptedFieldsArray(results));
   } catch (error) {
     console.error("Error in getPinnedMessages:", error.message);
     res.status(500).json({ error: "Internal server error" });
@@ -597,12 +629,12 @@ export const getStarredMessages = async (req, res) => {
       ],
     })
       .select(
-        "senderId receiverId text image images pinnedBy starredBy createdAt sentAt updatedAt"
+        "senderId receiverId text textEnc linkPreview linkPreviewEnc encKeyId encVersion image images pinnedBy starredBy createdAt sentAt updatedAt"
       )
       .sort({ createdAt: -1, _id: -1 })
       .lean();
 
-    res.status(200).json(results);
+    res.status(200).json(applyDecryptedFieldsArray(results));
   } catch (error) {
     console.error("Error in getStarredMessages:", error.message);
     res.status(500).json({ error: "Internal server error" });
@@ -636,16 +668,17 @@ export const togglePin = async (req, res) => {
     const updated = await Message.findByIdAndUpdate(messageId, update, {
       new: true,
     }).lean();
+    const payload = applyDecryptedFields(updated);
 
     const receiverSocketIds = getReceiverSocketIds(
       message.receiverId.toString()
     );
     const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
     [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
-      io.to(socketId).emit("messagePinned", updated);
+      io.to(socketId).emit("messagePinned", payload);
     });
 
-    res.status(200).json(updated);
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Error in togglePin:", error.message);
     res.status(500).json({ error: "Internal server error" });
@@ -679,16 +712,17 @@ export const toggleStar = async (req, res) => {
     const updated = await Message.findByIdAndUpdate(messageId, update, {
       new: true,
     }).lean();
+    const payload = applyDecryptedFields(updated);
 
     const receiverSocketIds = getReceiverSocketIds(
       message.receiverId.toString()
     );
     const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
     [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
-      io.to(socketId).emit("messageStarred", updated);
+      io.to(socketId).emit("messageStarred", payload);
     });
 
-    res.status(200).json(updated);
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Error in toggleStar:", error.message);
     res.status(500).json({ error: "Internal server error" });
@@ -736,27 +770,36 @@ export const editMessage = async (req, res) => {
       return res.status(400).json({ message: "Message already deleted" });
     }
 
-    if (message.text === trimmed) {
-      return res.status(200).json(message);
+    const currentText =
+      message.text || decryptString(message.textEnc, message.encKeyId);
+    if (currentText === trimmed) {
+      return res.status(200).json(applyDecryptedFields(message.toObject()));
     }
 
-    message.text = trimmed;
+    const encryptionEnabled = isMessageEncryptionEnabled();
+    const storePlaintext = shouldStoreMessagePlaintext();
+    const rawTextEnc = encryptionEnabled ? encryptString(trimmed) : null;
+    message.text = storePlaintext ? trimmed : "";
+    message.textEnc = stripKeyId(rawTextEnc);
+    message.encKeyId = rawTextEnc?.keyId || null;
+    message.encVersion = message.textEnc ? 1 : undefined;
     message.editedAt = new Date();
     await message.save();
 
     await updateConversationIfLatest(message, {
-      lastMessageText: trimmed,
+      lastMessageText: storePlaintext ? trimmed : "Encrypted message",
     });
 
     const receiverSocketIds = getReceiverSocketIds(
       message.receiverId.toString()
     );
     const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
+    const payload = applyDecryptedFields(message.toObject());
     [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
-      io.to(socketId).emit("messageUpdated", message.toObject());
+      io.to(socketId).emit("messageUpdated", payload);
     });
 
-    res.status(200).json(message);
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Error in editMessage:", error.message);
     res.status(500).json({ error: "Internal server error" });
@@ -778,9 +821,13 @@ export const deleteMessage = async (req, res) => {
     message.deletedAt = new Date();
     message.deletedBy = req.user._id;
     message.text = "";
+    message.textEnc = null;
     message.image = "";
     message.images = [];
     message.linkPreview = null;
+    message.linkPreviewEnc = null;
+    message.encKeyId = null;
+    message.encVersion = undefined;
     await message.save();
 
     await updateConversationIfLatest(message, {
@@ -793,11 +840,12 @@ export const deleteMessage = async (req, res) => {
       message.receiverId.toString()
     );
     const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
+    const payload = applyDecryptedFields(message.toObject());
     [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
-      io.to(socketId).emit("messageDeleted", message.toObject());
+      io.to(socketId).emit("messageDeleted", payload);
     });
 
-    res.status(200).json(message);
+    res.status(200).json(payload);
   } catch (error) {
     console.error("Error in deleteMessage:", error.message);
     res.status(500).json({ error: "Internal server error" });

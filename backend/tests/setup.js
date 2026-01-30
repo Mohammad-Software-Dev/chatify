@@ -8,6 +8,11 @@ let dbReady = false;
 process.env.JWT_SECRET = process.env.JWT_SECRET || "test_secret";
 process.env.CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 process.env.NODE_ENV = "test";
+process.env.COOKIE_SAMESITE = process.env.COOKIE_SAMESITE || "strict";
+process.env.COOKIE_SECURE = process.env.COOKIE_SECURE || "true";
+process.env.COOKIE_PATH = process.env.COOKIE_PATH || "/";
+process.env.JWT_ACCESS_TTL = process.env.JWT_ACCESS_TTL || "10m";
+process.env.JWT_REFRESH_TTL = process.env.JWT_REFRESH_TTL || "7d";
 process.env.MONGOMS_IP = "127.0.0.1";
 process.env.MONGOMS_PORT = "27017";
 

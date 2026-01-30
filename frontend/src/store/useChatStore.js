@@ -82,11 +82,10 @@ export const useChatStore = create((set, get) => ({
   unreadByUserId: {},
   typingByUserId: {},
   searchResults: [],
-  globalSearchResults: [],
   pinnedMessages: [],
   starredMessages: [],
   isSearching: false,
-  isGlobalSearching: false,
+  searchError: null,
   isPinnedLoading: false,
   isStarredLoading: false,
   pendingQueue: loadPendingQueue(),
@@ -116,11 +115,10 @@ export const useChatStore = create((set, get) => ({
       unreadByUserId: {},
       typingByUserId: {},
       searchResults: [],
-      globalSearchResults: [],
       pinnedMessages: [],
       starredMessages: [],
       isSearching: false,
-      isGlobalSearching: false,
+      searchError: null,
       isPinnedLoading: false,
       isStarredLoading: false,
       pendingQueue: [],
@@ -529,45 +527,27 @@ export const useChatStore = create((set, get) => ({
   searchMessages: async (userId, query) => {
     const trimmed = query?.trim();
     if (!userId || !trimmed) {
-      set({ searchResults: [], isSearching: false });
+      set({ searchResults: [], isSearching: false, searchError: null });
       return;
     }
-    set({ isSearching: true });
+    set({ isSearching: true, searchError: null });
     try {
       const res = await axiosInstance.get(
         `/messages/search/${userId}?q=${encodeURIComponent(trimmed)}`
       );
-      set({ searchResults: res.data || [] });
+      set({ searchResults: res.data || [], searchError: null });
     } catch (error) {
-      toast.error(error.response?.data?.message || "Search failed");
+      const message =
+        error.response?.data?.message || "Search failed";
+      set({ searchError: message, searchResults: [] });
+      toast.error(message);
     } finally {
       set({ isSearching: false });
     }
   },
 
-  clearSearchResults: () => set({ searchResults: [], isSearching: false }),
-
-  searchAllMessages: async (query) => {
-    const trimmed = query?.trim();
-    if (!trimmed) {
-      set({ globalSearchResults: [], isGlobalSearching: false });
-      return;
-    }
-    set({ isGlobalSearching: true });
-    try {
-      const res = await axiosInstance.get(
-        `/messages/search-all?q=${encodeURIComponent(trimmed)}`
-      );
-      set({ globalSearchResults: res.data || [] });
-    } catch (error) {
-      toast.error(error.response?.data?.message || "Search failed");
-    } finally {
-      set({ isGlobalSearching: false });
-    }
-  },
-
-  clearGlobalSearchResults: () =>
-    set({ globalSearchResults: [], isGlobalSearching: false }),
+  clearSearchResults: () =>
+    set({ searchResults: [], isSearching: false, searchError: null }),
 
   loadPinnedMessages: async (userId) => {
     if (!userId) return;

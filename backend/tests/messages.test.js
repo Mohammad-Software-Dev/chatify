@@ -4,6 +4,9 @@ import { createApp } from "../src/app.js";
 import User from "../src/models/User.js";
 import Message from "../src/models/Message.js";
 
+process.env.MESSAGE_ENC_STORE_PLAINTEXT =
+  process.env.MESSAGE_ENC_STORE_PLAINTEXT || "true";
+
 const app = createApp();
 const describeDb = process.env.SKIP_DB_TESTS ? describe.skip : describe;
 
