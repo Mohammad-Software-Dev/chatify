@@ -5,7 +5,17 @@ import ChatHeader from "./ChatHeader";
 import NoChatHistoryPlaceholder from "./NoChatHistoryPlaceholder";
 import MessageInput from "./MessageInput";
 import MessagesLoadingSkeleton from "./MessagesLoadingSkeleton";
-import { Check, CheckCheck, PinIcon, SearchIcon, StarIcon, XIcon } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  CheckCheck,
+  Clock,
+  Loader2,
+  PinIcon,
+  SearchIcon,
+  StarIcon,
+  XIcon,
+} from "lucide-react";
 import toast from "react-hot-toast";
 
 function ChatContainer() {
@@ -33,6 +43,9 @@ function ChatContainer() {
     togglePin,
     toggleStar,
     fetchMessageById,
+    retryFailedMessage,
+    pendingScrollMessageId,
+    clearPendingScrollMessageId,
   } = useChatStore();
   const { authUser } = useAuthStore();
   const messagesContainerRef = useRef(null);
@@ -50,6 +63,14 @@ function ChatContainer() {
   const [editingText, setEditingText] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState("all");
+
+  const visibleMessages = useMemo(() => {
+    const startIndex =
+      hasMoreMessages && messages.length > renderLimit
+        ? messages.length - renderLimit
+        : 0;
+    return messages.slice(startIndex);
+  }, [messages, hasMoreMessages, renderLimit]);
 
   const getMessageTime = (msg) =>
     msg?.createdAt || msg?.sentAt || msg?.updatedAt || msg?.deliveredAt || null;
@@ -70,6 +91,13 @@ function ChatContainer() {
     setViewMode("all");
     clearSearchResults();
   }, [selectedUser, getMessagesByUserId, clearSearchResults]);
+
+  useEffect(() => {
+    if (!pendingScrollMessageId) return;
+    const targetId = pendingScrollMessageId;
+    clearPendingScrollMessageId();
+    scrollToMessage(targetId);
+  }, [pendingScrollMessageId, clearPendingScrollMessageId]);
 
   useEffect(() => {
     return () => {
@@ -257,6 +285,42 @@ function ChatContainer() {
     Array.isArray(msg.starredBy) &&
     msg.starredBy.some((id) => String(id) === String(authUser._id));
 
+  const renderLocalStatus = (msg) => {
+    if (!msg.isOptimistic) return null;
+    if (msg.localStatus === "sending") {
+      return (
+        <Loader2
+          className="w-3.5 h-3.5 text-slate-200/70 animate-spin"
+          title="Sending"
+        />
+      );
+    }
+    if (msg.localStatus === "queued") {
+      return (
+        <Clock
+          className="w-3.5 h-3.5 text-amber-200/80"
+          title="Queued"
+        />
+      );
+    }
+    if (msg.localStatus === "failed") {
+      return (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            retryFailedMessage(msg._id);
+          }}
+          className="text-rose-300 hover:text-rose-200"
+          title="Failed to send. Tap to retry."
+        >
+          <AlertCircle className="w-3.5 h-3.5" />
+        </button>
+      );
+    }
+    return null;
+  };
+
   return (
     <>
       <ChatHeader />
@@ -379,13 +443,7 @@ function ChatContainer() {
                 Loading older messages...
               </div>
             )}
-            {useMemo(() => {
-              const startIndex =
-                hasMoreMessages && messages.length > renderLimit
-                  ? messages.length - renderLimit
-                  : 0;
-              return messages.slice(startIndex);
-            }, [messages, hasMoreMessages, renderLimit]).map((msg) => {
+            {visibleMessages.map((msg) => {
                 const status = msg.status || "sent";
                 const isDeleted = Boolean(msg.deletedAt);
                 const reactions = Array.isArray(msg.reactions)
@@ -613,6 +671,7 @@ function ChatContainer() {
                             minute: "2-digit",
                           })}
                         </span>
+                        {renderLocalStatus(msg)}
                         {!isDeleted && isPinnedByMe(msg) && (
                           <PinIcon className="w-3.5 h-3.5 text-cyan-200" />
                         )}

@@ -16,6 +16,7 @@ import {
   togglePin,
   toggleStar,
   getMessageById,
+  searchAllMessages,
 } from "../controllers/message.controller.js";
 import { protectRoute } from "../middleware/auth.middleware.js";
 import { arcjetProtection } from "../middleware/arcjet.middleware.js";
@@ -34,6 +35,7 @@ import {
   editMessageSchema,
   deleteMessageSchema,
   searchMessagesSchema,
+  searchAllMessagesSchema,
   listPinnedSchema,
   listStarredSchema,
   pinToggleSchema,
@@ -55,6 +57,7 @@ router.get(
   getAllContacts
 );
 router.get("/chats", getChatPartners);
+router.get("/search-all", validate(searchAllMessagesSchema), searchAllMessages);
 router.get("/search/:id", validate(searchMessagesSchema), searchMessages);
 router.get("/pinned/:id", validate(listPinnedSchema), getPinnedMessages);
 router.get("/starred/:id", validate(listStarredSchema), getStarredMessages);

@@ -517,6 +517,38 @@ export const searchMessages = async (req, res) => {
   }
 };
 
+export const searchAllMessages = async (req, res) => {
+  try {
+    const myId = req.user._id;
+    const queryText = req.query.q?.trim();
+    if (!queryText) return res.status(200).json([]);
+
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
+    const regex = new RegExp(escapeRegex(queryText), "i");
+
+    const results = await Message.find({
+      $and: [
+        {
+          $or: [{ senderId: myId }, { receiverId: myId }],
+        },
+        { text: { $regex: regex } },
+        { $or: [{ deletedAt: { $exists: false } }, { deletedAt: null }] },
+      ],
+    })
+      .select(
+        "senderId receiverId text image images createdAt sentAt updatedAt"
+      )
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit)
+      .lean();
+
+    res.status(200).json(results);
+  } catch (error) {
+    console.error("Error in searchAllMessages:", error.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
 export const getPinnedMessages = async (req, res) => {
   try {
     const myId = req.user._id;

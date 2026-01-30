@@ -7,6 +7,7 @@ const MESSAGE_PAGE_SIZE = 20;
 const QUEUE_STORAGE_KEY = "chatify.pendingQueue";
 const MAX_RETRY_DELAY_MS = 30000;
 const BASE_RETRY_DELAY_MS = 1000;
+const MAX_RETRY_ATTEMPTS = 3;
 
 const loadPendingQueue = () => {
   try {
@@ -73,6 +74,7 @@ export const useChatStore = create((set, get) => ({
   messages: [],
   activeTab: "chats",
   selectedUser: null,
+  pendingScrollMessageId: null,
   isUsersLoading: false,
   isMessagesLoading: false,
   isLoadingMoreMessages: false,
@@ -80,9 +82,11 @@ export const useChatStore = create((set, get) => ({
   unreadByUserId: {},
   typingByUserId: {},
   searchResults: [],
+  globalSearchResults: [],
   pinnedMessages: [],
   starredMessages: [],
   isSearching: false,
+  isGlobalSearching: false,
   isPinnedLoading: false,
   isStarredLoading: false,
   pendingQueue: loadPendingQueue(),
@@ -112,9 +116,11 @@ export const useChatStore = create((set, get) => ({
       unreadByUserId: {},
       typingByUserId: {},
       searchResults: [],
+      globalSearchResults: [],
       pinnedMessages: [],
       starredMessages: [],
       isSearching: false,
+      isGlobalSearching: false,
       isPinnedLoading: false,
       isStarredLoading: false,
       pendingQueue: [],
@@ -136,6 +142,9 @@ export const useChatStore = create((set, get) => ({
           )
         : state.chats,
     })),
+  setPendingScrollMessageId: (messageId) =>
+    set({ pendingScrollMessageId: messageId }),
+  clearPendingScrollMessageId: () => set({ pendingScrollMessageId: null }),
 
   getAllContacts: async (username) => {
     set({ isUsersLoading: true });
@@ -254,6 +263,7 @@ export const useChatStore = create((set, get) => ({
       status: "sent",
       clientMessageId: tempId,
       uploadProgress: null,
+      localStatus: "sending",
       isOptimistic: true, // flag to identify optimistic messages (optional)
     };
     // immidetaly update the ui by adding the message
@@ -262,12 +272,18 @@ export const useChatStore = create((set, get) => ({
     }));
 
     if (isOffline) {
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          msg._id === tempId ? { ...msg, localStatus: "queued" } : msg
+        ),
+      }));
       get().enqueuePendingMessage({
         id: tempId,
         toUserId: selectedUser._id,
         payload: { ...messageData, clientMessageId: tempId },
         attempt: 0,
         nextRetryAt: Date.now(),
+        status: "queued",
       });
       toast.error("You are offline. Message queued.");
       return;
@@ -302,12 +318,18 @@ export const useChatStore = create((set, get) => ({
         return { chats: updatedChats };
       });
     } catch (error) {
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          msg._id === tempId ? { ...msg, localStatus: "queued" } : msg
+        ),
+      }));
       get().enqueuePendingMessage({
         id: tempId,
         toUserId: selectedUser._id,
         payload: { ...messageData, clientMessageId: tempId },
         attempt: 0,
         nextRetryAt: Date.now(),
+        status: "queued",
       });
       toast.error(error.response?.data?.message || "Message queued");
     }
@@ -345,10 +367,17 @@ export const useChatStore = create((set, get) => ({
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
 
     const now = Date.now();
-    const readyEntry = pendingQueue.find((item) => item.nextRetryAt <= now);
+    const readyEntry = pendingQueue.find(
+      (item) => item.nextRetryAt <= now && item.status !== "failed"
+    );
     if (!readyEntry) return;
 
     try {
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          msg._id === readyEntry.id ? { ...msg, localStatus: "sending" } : msg
+        ),
+      }));
       const res = await axiosInstance.post(
         `/messages/send/${readyEntry.toUserId}`,
         readyEntry.payload
@@ -389,6 +418,26 @@ export const useChatStore = create((set, get) => ({
       });
     } catch (error) {
       const nextAttempt = readyEntry.attempt + 1;
+      if (nextAttempt >= MAX_RETRY_ATTEMPTS) {
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            msg._id === readyEntry.id
+              ? { ...msg, localStatus: "failed" }
+              : msg
+          ),
+        }));
+        set((state) => {
+          const queue = state.pendingQueue.map((item) =>
+            item.id === readyEntry.id
+              ? { ...item, status: "failed", attempt: nextAttempt }
+              : item
+          );
+          savePendingQueue(queue);
+          return { pendingQueue: queue };
+        });
+        return;
+      }
+
       const delay = Math.min(
         BASE_RETRY_DELAY_MS * 2 ** nextAttempt,
         MAX_RETRY_DELAY_MS
@@ -397,6 +446,7 @@ export const useChatStore = create((set, get) => ({
         ...readyEntry,
         attempt: nextAttempt,
         nextRetryAt: Date.now() + delay,
+        status: "queued",
       };
 
       set((state) => {
@@ -411,6 +461,54 @@ export const useChatStore = create((set, get) => ({
         get().processPendingQueue();
       }, 500);
     }
+  },
+
+  retryFailedMessage: (messageId) => {
+    set((state) => ({
+      messages: state.messages.map((msg) =>
+        msg._id === messageId ? { ...msg, localStatus: "queued" } : msg
+      ),
+    }));
+    set((state) => {
+      const existing = state.pendingQueue.find((item) => item.id === messageId);
+      if (!existing) return state;
+      const updatedQueue = state.pendingQueue.map((item) =>
+        item.id === messageId
+          ? {
+              ...item,
+              status: "queued",
+              attempt: 0,
+              nextRetryAt: Date.now(),
+            }
+          : item
+      );
+      savePendingQueue(updatedQueue);
+      return { pendingQueue: updatedQueue };
+    });
+    get().processPendingQueue();
+  },
+
+  retryAllFailedMessages: () => {
+    set((state) => ({
+      messages: state.messages.map((msg) =>
+        msg.localStatus === "failed" ? { ...msg, localStatus: "queued" } : msg
+      ),
+    }));
+    set((state) => {
+      const updatedQueue = state.pendingQueue.map((item) =>
+        item.status === "failed"
+          ? {
+              ...item,
+              status: "queued",
+              attempt: 0,
+              nextRetryAt: Date.now(),
+            }
+          : item
+      );
+      savePendingQueue(updatedQueue);
+      return { pendingQueue: updatedQueue };
+    });
+    get().processPendingQueue();
   },
 
   markMessagesAsRead: async (userId) => {
@@ -448,6 +546,28 @@ export const useChatStore = create((set, get) => ({
   },
 
   clearSearchResults: () => set({ searchResults: [], isSearching: false }),
+
+  searchAllMessages: async (query) => {
+    const trimmed = query?.trim();
+    if (!trimmed) {
+      set({ globalSearchResults: [], isGlobalSearching: false });
+      return;
+    }
+    set({ isGlobalSearching: true });
+    try {
+      const res = await axiosInstance.get(
+        `/messages/search-all?q=${encodeURIComponent(trimmed)}`
+      );
+      set({ globalSearchResults: res.data || [] });
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Search failed");
+    } finally {
+      set({ isGlobalSearching: false });
+    }
+  },
+
+  clearGlobalSearchResults: () =>
+    set({ globalSearchResults: [], isGlobalSearching: false }),
 
   loadPinnedMessages: async (userId) => {
     if (!userId) return;
