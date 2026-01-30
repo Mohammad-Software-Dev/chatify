@@ -58,6 +58,9 @@ const getMessageTimestamp = (msg) => {
   return time ? new Date(time).getTime() : 0;
 };
 
+const isValidObjectId = (value) =>
+  typeof value === "string" && /^[a-f0-9]{24}$/i.test(value);
+
 const isChatLastMessage = (chat, message) => {
   if (!chat?.lastMessageAt) return false;
   const chatTime = new Date(chat.lastMessageAt).getTime();
@@ -576,6 +579,10 @@ export const useChatStore = create((set, get) => ({
   },
 
   togglePin: async (messageId) => {
+    if (!isValidObjectId(messageId)) {
+      toast.error("Message is not sent yet.");
+      return;
+    }
     try {
       const res = await axiosInstance.post(`/messages/${messageId}/pin`);
       const updated = res.data;
@@ -606,6 +613,10 @@ export const useChatStore = create((set, get) => ({
   },
 
   toggleStar: async (messageId) => {
+    if (!isValidObjectId(messageId)) {
+      toast.error("Message is not sent yet.");
+      return;
+    }
     try {
       const res = await axiosInstance.post(`/messages/${messageId}/star`);
       const updated = res.data;

@@ -285,6 +285,8 @@ function ChatContainer() {
   const isStarredByMe = (msg) =>
     Array.isArray(msg.starredBy) &&
     msg.starredBy.some((id) => String(id) === String(authUser._id));
+  const canToggleMessage = (msg) =>
+    typeof msg?._id === "string" && /^[a-f0-9]{24}$/i.test(msg._id);
 
   const renderLocalStatus = (msg) => {
     if (!msg.isOptimistic) return null;
@@ -742,12 +744,23 @@ function ChatContainer() {
                                 e.stopPropagation();
                                 togglePin(msg._id);
                               }}
+                              disabled={!canToggleMessage(msg)}
                               className={`transition-colors ${
                                 isPinnedByMe(msg)
                                   ? "text-cyan-200"
                                   : "text-slate-200/70 hover:text-white"
+                              } ${
+                                !canToggleMessage(msg)
+                                  ? "opacity-50 cursor-not-allowed"
+                                  : ""
                               }`}
-                              title={isPinnedByMe(msg) ? "Unpin" : "Pin"}
+                              title={
+                                !canToggleMessage(msg)
+                                  ? "Message not sent yet"
+                                  : isPinnedByMe(msg)
+                                  ? "Unpin"
+                                  : "Pin"
+                              }
                             >
                               <PinIcon
                                 className={`w-4 h-4 ${
@@ -761,12 +774,23 @@ function ChatContainer() {
                                 e.stopPropagation();
                                 toggleStar(msg._id);
                               }}
+                              disabled={!canToggleMessage(msg)}
                               className={`transition-colors ${
                                 isStarredByMe(msg)
                                   ? "text-amber-200"
                                   : "text-slate-200/70 hover:text-white"
+                              } ${
+                                !canToggleMessage(msg)
+                                  ? "opacity-50 cursor-not-allowed"
+                                  : ""
                               }`}
-                              title={isStarredByMe(msg) ? "Unstar" : "Star"}
+                              title={
+                                !canToggleMessage(msg)
+                                  ? "Message not sent yet"
+                                  : isStarredByMe(msg)
+                                  ? "Unstar"
+                                  : "Star"
+                              }
                             >
                               <StarIcon
                                 className={`w-4 h-4 ${

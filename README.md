@@ -2,6 +2,9 @@
 
 A real-time chat app with a React frontend and an Express + Socket.IO backend.
 
+## Documentation
+See `DOCUMENTATION.md` for full project documentation.
+
 ## Features
 - Email/password authentication with JWT http-only cookies
 - Unique usernames with availability check
