@@ -39,9 +39,14 @@ function ChatsList() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2">
-                <h4 className="text-slate-200 font-medium truncate">
-                  {chat.fullName}
-                </h4>
+                <div className="min-w-0">
+                  <h4 className="text-slate-200 font-medium truncate">
+                    {chat.fullName}
+                  </h4>
+                  <p className="text-xs text-slate-400 truncate">
+                    @{chat.username}
+                  </p>
+                </div>
                 {chat.lastMessageAt && (
                   <span className="text-xs text-slate-400 shrink-0">
                     {new Date(chat.lastMessageAt).toLocaleTimeString(

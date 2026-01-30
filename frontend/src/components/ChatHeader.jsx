@@ -60,6 +60,7 @@ function ChatHeader() {
           <h3 className="text-slate-200 font-medium">
             {selectedUser.fullName}
           </h3>
+          <p className="text-xs text-slate-400">@{selectedUser.username}</p>
           <p
             className={`text-sm ${
               isTyping ? "text-green-400" : "text-slate-400"

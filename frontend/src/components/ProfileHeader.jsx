@@ -155,6 +155,9 @@ function ProfileHeader() {
             <h3 className="text-slate-200 font-medium text-base max-w-45 truncate">
               {authUser.fullName}
             </h3>
+            <p className="text-xs text-slate-400 truncate">
+              @{authUser.username}
+            </p>
 
             <p className="text-slate-400 text-xs">Online</p>
           </div>
@@ -193,14 +196,16 @@ function ProfileHeader() {
 
       <div className="mt-4 rounded-lg border border-slate-700/60 bg-slate-900/40 p-3">
         <label className="auth-input-label">Username</label>
-        <div className="flex items-center gap-2">
+        <div className="w-full">
           <input
             type="text"
             value={usernameInput}
             onChange={(e) => handleUsernameChange(e.target.value)}
-            className="flex-1 input"
+            className="w-full input"
             placeholder="your_username"
           />
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={handleCheckUsername}
