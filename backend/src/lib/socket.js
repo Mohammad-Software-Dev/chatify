@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import http from "http";
 import express from "express";
+import crypto from "crypto";
 import { ENV } from "./env.js";
 import { socketAuthMiddleware } from "../middleware/socket.auth.middleware.js";
 import User from "../models/User.js";
@@ -14,6 +15,27 @@ const io = new Server(server, {
     credentials: true,
   },
 });
+
+const buildEnvelope = (type, payload, meta = {}) => ({
+  id: crypto.randomUUID(),
+  type,
+  ts: new Date().toISOString(),
+  v: 1,
+  ...meta,
+  payload,
+});
+
+export const emitEnvelopeToAll = (type, payload, meta) => {
+  io.emit("socket:event", buildEnvelope(type, payload, meta));
+};
+
+export const emitEnvelopeToSocketIds = (socketIds, type, payload, meta) => {
+  if (!socketIds || socketIds.length === 0) return;
+  const envelope = buildEnvelope(type, payload, meta);
+  socketIds.forEach((socketId) => {
+    io.to(socketId).emit("socket:event", envelope);
+  });
+};
 
 // apply authentication middleware to all socket connections
 io.use(socketAuthMiddleware);
@@ -38,14 +60,14 @@ io.on("connection", (socket) => {
   User.findByIdAndUpdate(userId, { lastActiveAt: now }).catch((error) => {
     console.log("Error updating lastActiveAt:", error.message);
   });
-  io.emit("presence:update", {
+  emitEnvelopeToAll("presence:update", {
     userId,
     isOnline: true,
     lastActiveAt: now.toISOString(),
   });
-
-  // io.emit() is used to send events to all connected clients
-  io.emit("getOnlineUsers", Array.from(userSocketMap.keys()));
+  emitEnvelopeToAll("presence:list", {
+    userIds: Array.from(userSocketMap.keys()),
+  });
 
   // with socket.on we listen for events from clients
   socket.on("presence:ping", () => {
@@ -55,7 +77,7 @@ io.on("connection", (socket) => {
         console.log("Error updating lastActiveAt:", error.message);
       }
     );
-    io.emit("presence:update", {
+    emitEnvelopeToAll("presence:update", {
       userId,
       isOnline: true,
       lastActiveAt: pingTime.toISOString(),
@@ -64,16 +86,43 @@ io.on("connection", (socket) => {
   socket.on("typing:start", ({ toUserId }) => {
     if (!toUserId) return;
     const receiverSocketIds = getReceiverSocketIds(toUserId);
-    receiverSocketIds.forEach((socketId) => {
-      io.to(socketId).emit("typing:start", { fromUserId: userId });
+    emitEnvelopeToSocketIds(receiverSocketIds, "typing:start", {
+      fromUserId: userId,
     });
   });
 
   socket.on("typing:stop", ({ toUserId }) => {
     if (!toUserId) return;
     const receiverSocketIds = getReceiverSocketIds(toUserId);
-    receiverSocketIds.forEach((socketId) => {
-      io.to(socketId).emit("typing:stop", { fromUserId: userId });
+    emitEnvelopeToSocketIds(receiverSocketIds, "typing:stop", {
+      fromUserId: userId,
+    });
+  });
+
+  socket.on("message:queued", ({ clientMessageId, toUserId }) => {
+    if (!clientMessageId) return;
+    const senderSocketIds = getReceiverSocketIds(userId);
+    emitEnvelopeToSocketIds(senderSocketIds, "message:queued", {
+      clientMessageId,
+      toUserId,
+    });
+  });
+
+  socket.on("message:retrying", ({ clientMessageId, attempt }) => {
+    if (!clientMessageId) return;
+    const senderSocketIds = getReceiverSocketIds(userId);
+    emitEnvelopeToSocketIds(senderSocketIds, "message:retrying", {
+      clientMessageId,
+      attempt,
+    });
+  });
+
+  socket.on("message:failed", ({ clientMessageId, reason }) => {
+    if (!clientMessageId) return;
+    const senderSocketIds = getReceiverSocketIds(userId);
+    emitEnvelopeToSocketIds(senderSocketIds, "message:failed", {
+      clientMessageId,
+      reason,
     });
   });
 
@@ -87,13 +136,15 @@ io.on("connection", (socket) => {
         userSocketMap.delete(userId);
       }
     }
-    io.emit("getOnlineUsers", Array.from(userSocketMap.keys()));
+    emitEnvelopeToAll("presence:list", {
+      userIds: Array.from(userSocketMap.keys()),
+    });
     User.findByIdAndUpdate(userId, { lastSeenAt: disconnectTime }).catch(
       (error) => {
         console.log("Error updating lastSeenAt:", error.message);
       }
     );
-    io.emit("presence:update", {
+    emitEnvelopeToAll("presence:update", {
       userId,
       isOnline: false,
       lastSeenAt: disconnectTime.toISOString(),

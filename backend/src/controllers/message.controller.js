@@ -1,5 +1,5 @@
 import cloudinary from "../lib/cloudinary.js";
-import { getReceiverSocketIds, io } from "../lib/socket.js";
+import { getReceiverSocketIds, emitEnvelopeToSocketIds } from "../lib/socket.js";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
 import Conversation from "../models/Conversation.js";
@@ -263,16 +263,12 @@ export const getMessagesByUserId = async (req, res) => {
         );
 
         const senderSocketIds = getReceiverSocketIds(userToChatId);
-        if (senderSocketIds.length > 0) {
-          senderSocketIds.forEach((socketId) => {
-            io.to(socketId).emit("messageStatusUpdate", {
-              messageIds: messageIds.map((id) => id.toString()),
-              status: "read",
-              readAt: now.toISOString(),
-              deliveredAt: now.toISOString(),
-            });
-          });
-        }
+        emitEnvelopeToSocketIds(senderSocketIds, "message:status", {
+          messageIds: messageIds.map((id) => id.toString()),
+          status: "read",
+          readAt: now.toISOString(),
+          deliveredAt: now.toISOString(),
+        });
       }
 
       const conversationKey = getConversationKey(myId, userToChatId);
@@ -452,23 +448,20 @@ export const sendMessage = async (req, res) => {
       { upsert: true }
     );
 
-    if (receiverSocketIds.length > 0) {
-      receiverSocketIds.forEach((socketId) => {
-        io.to(socketId).emit("newMessage", messagePayload);
-      });
-    }
+    const senderSocketIds = getReceiverSocketIds(senderId);
+    const allSocketIds = Array.from(
+      new Set([...receiverSocketIds, ...senderSocketIds])
+    );
+    emitEnvelopeToSocketIds(allSocketIds, "message:new", messagePayload, {
+      requestId: clientMessageId || undefined,
+    });
 
     if (isDelivered) {
-      const senderSocketIds = getReceiverSocketIds(senderId);
-      if (senderSocketIds.length > 0) {
-        senderSocketIds.forEach((socketId) => {
-          io.to(socketId).emit("messageStatusUpdate", {
-            messageIds: [messagePayload._id.toString()],
-            status: "delivered",
-            deliveredAt: deliveredAt.toISOString(),
-          });
-        });
-      }
+      emitEnvelopeToSocketIds(senderSocketIds, "message:status", {
+        messageIds: [messagePayload._id.toString()],
+        status: "delivered",
+        deliveredAt: deliveredAt.toISOString(),
+      });
     }
 
     res.status(201).json(messagePayload);
@@ -523,12 +516,14 @@ export const addReaction = async (req, res) => {
       emoji: reaction.emoji,
       createdAt: reaction.createdAt,
     }));
-    [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
-      io.to(socketId).emit("messageReactionUpdate", {
+    emitEnvelopeToSocketIds(
+      [...receiverSocketIds, ...senderSocketIds],
+      "message:reaction",
+      {
         messageId: message._id.toString(),
         reactions,
-      });
-    });
+      }
+    );
 
     res.status(200).json({ reactions });
   } catch (error) {
@@ -674,9 +669,11 @@ export const togglePin = async (req, res) => {
       message.receiverId.toString()
     );
     const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
-    [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
-      io.to(socketId).emit("messagePinned", payload);
-    });
+    emitEnvelopeToSocketIds(
+      [...receiverSocketIds, ...senderSocketIds],
+      "message:pinned",
+      payload
+    );
 
     res.status(200).json(payload);
   } catch (error) {
@@ -718,9 +715,11 @@ export const toggleStar = async (req, res) => {
       message.receiverId.toString()
     );
     const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
-    [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
-      io.to(socketId).emit("messageStarred", payload);
-    });
+    emitEnvelopeToSocketIds(
+      [...receiverSocketIds, ...senderSocketIds],
+      "message:starred",
+      payload
+    );
 
     res.status(200).json(payload);
   } catch (error) {
@@ -795,9 +794,11 @@ export const editMessage = async (req, res) => {
     );
     const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
     const payload = applyDecryptedFields(message.toObject());
-    [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
-      io.to(socketId).emit("messageUpdated", payload);
-    });
+    emitEnvelopeToSocketIds(
+      [...receiverSocketIds, ...senderSocketIds],
+      "message:updated",
+      payload
+    );
 
     res.status(200).json(payload);
   } catch (error) {
@@ -841,9 +842,11 @@ export const deleteMessage = async (req, res) => {
     );
     const senderSocketIds = getReceiverSocketIds(message.senderId.toString());
     const payload = applyDecryptedFields(message.toObject());
-    [...receiverSocketIds, ...senderSocketIds].forEach((socketId) => {
-      io.to(socketId).emit("messageDeleted", payload);
-    });
+    emitEnvelopeToSocketIds(
+      [...receiverSocketIds, ...senderSocketIds],
+      "message:deleted",
+      payload
+    );
 
     res.status(200).json(payload);
   } catch (error) {
@@ -1092,16 +1095,12 @@ export const markMessagesAsRead = async (req, res) => {
     );
 
     const senderSocketIds = getReceiverSocketIds(senderId);
-    if (senderSocketIds.length > 0) {
-      senderSocketIds.forEach((socketId) => {
-        io.to(socketId).emit("messageStatusUpdate", {
-          messageIds: messageIds.map((id) => id.toString()),
-          status: "read",
-          readAt: now.toISOString(),
-          deliveredAt: now.toISOString(),
-        });
-      });
-    }
+    emitEnvelopeToSocketIds(senderSocketIds, "message:status", {
+      messageIds: messageIds.map((id) => id.toString()),
+      status: "read",
+      readAt: now.toISOString(),
+      deliveredAt: now.toISOString(),
+    });
 
     res.status(200).json({ updated: messagesToMark.length });
   } catch (error) {

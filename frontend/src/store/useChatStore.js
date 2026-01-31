@@ -9,6 +9,19 @@ const MAX_RETRY_DELAY_MS = 30000;
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_RETRY_ATTEMPTS = 3;
 const typingTimeouts = new Map();
+const SUPPORTED_ENVELOPE_VERSIONS = new Set([1]);
+const seenSocketEventIds = new Set();
+const MAX_SEEN_EVENTS = 2000;
+const markEventSeen = (id) => {
+  if (!id) return false;
+  if (seenSocketEventIds.has(id)) return false;
+  seenSocketEventIds.add(id);
+  if (seenSocketEventIds.size > MAX_SEEN_EVENTS) {
+    const [first] = seenSocketEventIds;
+    seenSocketEventIds.delete(first);
+  }
+  return true;
+};
 
 const loadPendingQueue = () => {
   try {
@@ -362,6 +375,11 @@ export const useChatStore = create((set, get) => ({
       savePendingQueue(queue);
       return { pendingQueue: queue };
     });
+    const socket = useAuthStore.getState().socket;
+    socket?.emit("message:queued", {
+      clientMessageId: entry.id,
+      toUserId: entry.toUserId,
+    });
     get().processPendingQueue();
   },
 
@@ -382,6 +400,11 @@ export const useChatStore = create((set, get) => ({
           msg._id === readyEntry.id ? { ...msg, localStatus: "sending" } : msg
         ),
       }));
+      const socket = useAuthStore.getState().socket;
+      socket?.emit("message:retrying", {
+        clientMessageId: readyEntry.id,
+        attempt: readyEntry.attempt,
+      });
       const res = await axiosInstance.post(
         `/messages/send/${readyEntry.toUserId}`,
         readyEntry.payload
@@ -430,11 +453,16 @@ export const useChatStore = create((set, get) => ({
               : msg
           ),
         }));
+        const socket = useAuthStore.getState().socket;
+        socket?.emit("message:failed", {
+          clientMessageId: readyEntry.id,
+          reason: "retry_limit",
+        });
         set((state) => {
           const queue = state.pendingQueue.map((item) =>
             item.id === readyEntry.id
               ? { ...item, status: "failed", attempt: nextAttempt }
-              : item
+            : item
           );
           savePendingQueue(queue);
           return { pendingQueue: queue };
@@ -473,6 +501,8 @@ export const useChatStore = create((set, get) => ({
         msg._id === messageId ? { ...msg, localStatus: "queued" } : msg
       ),
     }));
+    const socket = useAuthStore.getState().socket;
+    socket?.emit("message:queued", { clientMessageId: messageId });
     set((state) => {
       const existing = state.pendingQueue.find((item) => item.id === messageId);
       if (!existing) return state;
@@ -498,6 +528,13 @@ export const useChatStore = create((set, get) => ({
         msg.localStatus === "failed" ? { ...msg, localStatus: "queued" } : msg
       ),
     }));
+    const socket = useAuthStore.getState().socket;
+    const pending = get().pendingQueue;
+    pending
+      .filter((item) => item.status === "failed")
+      .forEach((item) => {
+        socket?.emit("message:queued", { clientMessageId: item.id });
+      });
     set((state) => {
       const updatedQueue = state.pendingQueue.map((item) =>
         item.status === "failed"
@@ -755,62 +792,91 @@ export const useChatStore = create((set, get) => ({
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
 
-    socket.off("newMessage");
-    socket.off("messageStatusUpdate");
-    socket.off("typing:start");
-    socket.off("typing:stop");
-    socket.off("messageReactionUpdate");
-    socket.off("messageUpdated");
-    socket.off("messageDeleted");
-    socket.off("messagePinned");
-    socket.off("messageStarred");
+    socket.off("socket:event");
 
-    socket.on("newMessage", (newMessage) => {
-      const selectedUserId = get().selectedUser?._id;
-      const isSoundEnabled = get().isSoundEnabled;
-      const isFromSelectedUser = newMessage.senderId === selectedUserId;
-
-      if (isFromSelectedUser) {
-        const currentMessages = get().messages;
-        set({ messages: sortMessages([...currentMessages, newMessage]) });
-        get().markMessagesAsRead(selectedUserId);
-        if (typingTimeouts.has(newMessage.senderId)) {
-          clearTimeout(typingTimeouts.get(newMessage.senderId));
-          typingTimeouts.delete(newMessage.senderId);
+    socket.on("socket:event", (event) => {
+      if (!event?.type) return;
+      const version = event.v ?? 1;
+      if (!SUPPORTED_ENVELOPE_VERSIONS.has(version)) {
+        if (import.meta.env.DEV) {
+          console.warn("Unsupported socket envelope version", version, event);
         }
-        set((state) => {
-          if (!state.typingByUserId[newMessage.senderId]) return state;
-          return {
-            typingByUserId: {
-              ...state.typingByUserId,
-              [newMessage.senderId]: false,
-            },
-          };
-        });
-        set((state) => {
-          const updatedChats = state.chats.map((chat) =>
-            chat._id === newMessage.senderId
-              ? {
-                  ...chat,
-                  lastMessageAt: newMessage.createdAt,
-                  lastMessageText: newMessage.text || "",
-                  lastMessageImage: newMessage.image || "",
-                  lastMessageSenderId: newMessage.senderId,
-                }
-              : chat
-          );
-          updatedChats.sort(
-            (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
-          );
-          return { chats: updatedChats };
-        });
-      } else {
-        const existingChat = get().chats.find(
-          (chat) => chat._id === newMessage.senderId
-        );
-        if (!existingChat) {
-          get().getMyChatPartners();
-        } else {
+        return;
+      }
+      if (!markEventSeen(event.id)) return;
+      const type = event.type;
+      const payload = event.payload;
+
+      if (type === "message:new") {
+        const newMessage = payload;
+        if (!newMessage) return;
+        const { authUser } = useAuthStore.getState();
+        const selectedUserId = get().selectedUser?._id;
+        const isSoundEnabled = get().isSoundEnabled;
+        const isFromSelectedUser = newMessage.senderId === selectedUserId;
+        const isEchoFromMe = newMessage.senderId === authUser?._id;
+        const requestId = event.requestId || newMessage.clientMessageId;
+
+        if (isEchoFromMe) {
+          if (selectedUserId === newMessage.receiverId) {
+            set((state) => {
+              const exists = state.messages.some(
+                (msg) => String(msg._id) === String(newMessage._id)
+              );
+              if (exists) return state;
+              const replaced = state.messages.map((msg) =>
+                msg._id === requestId || msg.clientMessageId === requestId
+                  ? { ...newMessage, isOptimistic: false, localStatus: null }
+                  : msg
+              );
+              const hasReplacement = replaced.some(
+                (msg) => String(msg._id) === String(newMessage._id)
+              );
+              return {
+                messages: sortMessages(
+                  hasReplacement ? replaced : [...replaced, newMessage]
+                ),
+              };
+            });
+          }
+
+          set((state) => {
+            const updatedChats = state.chats.map((chat) =>
+              chat._id === newMessage.receiverId
+                ? {
+                    ...chat,
+                    lastMessageAt: newMessage.createdAt,
+                    lastMessageText: newMessage.text || "",
+                    lastMessageImage: newMessage.image || "",
+                    lastMessageSenderId: newMessage.senderId,
+                  }
+                : chat
+            );
+            updatedChats.sort(
+              (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
+            );
+            return { chats: updatedChats };
+          });
+          return;
+        }
+
+        if (isFromSelectedUser) {
+          const currentMessages = get().messages;
+          set({ messages: sortMessages([...currentMessages, newMessage]) });
+          get().markMessagesAsRead(selectedUserId);
+          if (typingTimeouts.has(newMessage.senderId)) {
+            clearTimeout(typingTimeouts.get(newMessage.senderId));
+            typingTimeouts.delete(newMessage.senderId);
+          }
+          set((state) => {
+            if (!state.typingByUserId[newMessage.senderId]) return state;
+            return {
+              typingByUserId: {
+                ...state.typingByUserId,
+                [newMessage.senderId]: false,
+              },
+            };
+          });
           set((state) => {
             const updatedChats = state.chats.map((chat) =>
               chat._id === newMessage.senderId
@@ -820,242 +886,320 @@ export const useChatStore = create((set, get) => ({
                     lastMessageText: newMessage.text || "",
                     lastMessageImage: newMessage.image || "",
                     lastMessageSenderId: newMessage.senderId,
-                    unreadCount: (chat.unreadCount || 0) + 1,
                   }
                 : chat
             );
             updatedChats.sort(
               (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
             );
+            return { chats: updatedChats };
+          });
+        } else {
+          const existingChat = get().chats.find(
+            (chat) => chat._id === newMessage.senderId
+          );
+          if (!existingChat) {
+            get().getMyChatPartners();
+          } else {
+            set((state) => {
+              const updatedChats = state.chats.map((chat) =>
+                chat._id === newMessage.senderId
+                  ? {
+                      ...chat,
+                      lastMessageAt: newMessage.createdAt,
+                      lastMessageText: newMessage.text || "",
+                      lastMessageImage: newMessage.image || "",
+                      lastMessageSenderId: newMessage.senderId,
+                      unreadCount: (chat.unreadCount || 0) + 1,
+                    }
+                  : chat
+              );
+              updatedChats.sort(
+                (a, b) =>
+                  new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
+              );
+              return {
+                chats: updatedChats,
+                unreadByUserId: {
+                  ...state.unreadByUserId,
+                  [newMessage.senderId]:
+                    (state.unreadByUserId[newMessage.senderId] || 0) + 1,
+                },
+              };
+            });
+          }
+        }
+
+        if (isSoundEnabled && !isEchoFromMe) {
+          const notificationSound = new Audio("/sounds/notification.mp3");
+          notificationSound.currentTime = 0;
+          notificationSound
+            .play()
+            .catch((e) => console.log("Audio play failed:", e));
+        }
+        return;
+      }
+
+      if (type === "message:status") {
+        const { messageIds, status, readAt, deliveredAt } = payload || {};
+        if (!Array.isArray(messageIds)) return;
+
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            messageIds.includes(msg._id)
+              ? {
+                  ...msg,
+                  status,
+                  readAt: readAt ?? msg.readAt,
+                  deliveredAt: deliveredAt ?? msg.deliveredAt,
+                }
+              : msg
+          ),
+        }));
+        return;
+      }
+
+      if (type === "message:reaction") {
+        const { messageId, reactions } = payload || {};
+        if (!messageId) return;
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            String(msg._id) === String(messageId)
+              ? { ...msg, reactions }
+              : msg
+          ),
+        }));
+        return;
+      }
+
+      if (type === "message:updated") {
+        const updatedMessage = payload;
+        if (!updatedMessage?._id) return;
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            String(msg._id) === String(updatedMessage._id)
+              ? {
+                  ...msg,
+                  text: updatedMessage.text,
+                  editedAt: updatedMessage.editedAt,
+                  updatedAt: updatedMessage.updatedAt,
+                }
+              : msg
+          ),
+          pinnedMessages: state.pinnedMessages.map((msg) =>
+            String(msg._id) === String(updatedMessage._id)
+              ? {
+                  ...msg,
+                  text: updatedMessage.text,
+                  editedAt: updatedMessage.editedAt,
+                }
+              : msg
+          ),
+          starredMessages: state.starredMessages.map((msg) =>
+            String(msg._id) === String(updatedMessage._id)
+              ? {
+                  ...msg,
+                  text: updatedMessage.text,
+                  editedAt: updatedMessage.editedAt,
+                }
+              : msg
+          ),
+          chats: state.chats.map((chat) =>
+            isChatLastMessage(chat, updatedMessage)
+              ? {
+                  ...chat,
+                  lastMessageText: updatedMessage.text || "",
+                }
+              : chat
+          ),
+        }));
+        return;
+      }
+
+      if (type === "message:deleted") {
+        const deletedMessage = payload;
+        if (!deletedMessage?._id) return;
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            String(msg._id) === String(deletedMessage._id)
+              ? {
+                  ...msg,
+                  text: "",
+                  image: "",
+                  images: [],
+                  linkPreview: null,
+                  deletedAt: deletedMessage.deletedAt,
+                  deletedBy: deletedMessage.deletedBy,
+                }
+              : msg
+          ),
+          pinnedMessages: state.pinnedMessages.filter(
+            (msg) => String(msg._id) !== String(deletedMessage._id)
+          ),
+          starredMessages: state.starredMessages.filter(
+            (msg) => String(msg._id) !== String(deletedMessage._id)
+          ),
+          chats: state.chats.map((chat) =>
+            isChatLastMessage(chat, deletedMessage)
+              ? {
+                  ...chat,
+                  lastMessageText: "Message deleted",
+                  lastMessageImage: "",
+                  lastMessageImages: [],
+                }
+              : chat
+          ),
+        }));
+        return;
+      }
+
+      if (type === "message:pinned") {
+        const updatedMessage = payload;
+        if (!updatedMessage?._id) return;
+        const authUser = useAuthStore.getState().authUser;
+        const isPinnedForMe = updatedMessage.pinnedBy?.some(
+          (id) => String(id) === String(authUser?._id)
+        );
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            String(msg._id) === String(updatedMessage._id)
+              ? { ...msg, pinnedBy: updatedMessage.pinnedBy || [] }
+              : msg
+          ),
+          pinnedMessages: isPinnedForMe
+            ? [
+                updatedMessage,
+                ...state.pinnedMessages.filter(
+                  (m) => String(m._id) !== String(updatedMessage._id)
+                ),
+              ]
+            : state.pinnedMessages.filter(
+                (m) => String(m._id) !== String(updatedMessage._id)
+              ),
+        }));
+        return;
+      }
+
+      if (type === "message:starred") {
+        const updatedMessage = payload;
+        if (!updatedMessage?._id) return;
+        const authUser = useAuthStore.getState().authUser;
+        const isStarredForMe = updatedMessage.starredBy?.some(
+          (id) => String(id) === String(authUser?._id)
+        );
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            String(msg._id) === String(updatedMessage._id)
+              ? { ...msg, starredBy: updatedMessage.starredBy || [] }
+              : msg
+          ),
+          starredMessages: isStarredForMe
+            ? [
+                updatedMessage,
+                ...state.starredMessages.filter(
+                  (m) => String(m._id) !== String(updatedMessage._id)
+                ),
+              ]
+            : state.starredMessages.filter(
+                (m) => String(m._id) !== String(updatedMessage._id)
+              ),
+        }));
+        return;
+      }
+
+      if (type === "message:queued") {
+        const { clientMessageId } = payload || {};
+        if (!clientMessageId) return;
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            msg._id === clientMessageId
+              ? { ...msg, localStatus: "queued" }
+              : msg
+          ),
+        }));
+        return;
+      }
+
+      if (type === "message:retrying") {
+        const { clientMessageId } = payload || {};
+        if (!clientMessageId) return;
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            msg._id === clientMessageId
+              ? { ...msg, localStatus: "sending" }
+              : msg
+          ),
+        }));
+        return;
+      }
+
+      if (type === "message:failed") {
+        const { clientMessageId } = payload || {};
+        if (!clientMessageId) return;
+        set((state) => ({
+          messages: state.messages.map((msg) =>
+            msg._id === clientMessageId
+              ? { ...msg, localStatus: "failed" }
+              : msg
+          ),
+        }));
+        return;
+      }
+
+      if (type === "typing:start") {
+        const { fromUserId } = payload || {};
+        if (!fromUserId) return;
+        set((state) => {
+          if (state.typingByUserId[fromUserId]) return state;
+          return {
+            typingByUserId: { ...state.typingByUserId, [fromUserId]: true },
+          };
+        });
+        if (typingTimeouts.has(fromUserId)) {
+          clearTimeout(typingTimeouts.get(fromUserId));
+        }
+        const timeoutId = setTimeout(() => {
+          set((state) => {
+            if (!state.typingByUserId[fromUserId]) return state;
             return {
-              chats: updatedChats,
-              unreadByUserId: {
-                ...state.unreadByUserId,
-                [newMessage.senderId]:
-                  (state.unreadByUserId[newMessage.senderId] || 0) + 1,
-              },
+              typingByUserId: { ...state.typingByUserId, [fromUserId]: false },
             };
           });
+          typingTimeouts.delete(fromUserId);
+        }, 3000);
+        typingTimeouts.set(fromUserId, timeoutId);
+        return;
+      }
+
+      if (type === "typing:stop") {
+        const { fromUserId } = payload || {};
+        if (!fromUserId) return;
+        if (typingTimeouts.has(fromUserId)) {
+          clearTimeout(typingTimeouts.get(fromUserId));
+          typingTimeouts.delete(fromUserId);
         }
+        const timeoutId = setTimeout(() => {
+          set((state) => {
+            if (!state.typingByUserId[fromUserId]) return state;
+            return {
+              typingByUserId: { ...state.typingByUserId, [fromUserId]: false },
+            };
+          });
+          typingTimeouts.delete(fromUserId);
+        }, 1200);
+        typingTimeouts.set(fromUserId, timeoutId);
+        return;
       }
 
-      if (isSoundEnabled) {
-        const notificationSound = new Audio("/sounds/notification.mp3");
-
-        notificationSound.currentTime = 0; // reset to start
-        notificationSound
-          .play()
-          .catch((e) => console.log("Audio play failed:", e));
+      if (import.meta.env.DEV) {
+        console.warn("Unhandled socket event", type, event);
       }
-    });
-
-    socket.on("messageStatusUpdate", (payload) => {
-      const { messageIds, status, readAt, deliveredAt } = payload;
-      if (!Array.isArray(messageIds)) return;
-
-      set((state) => ({
-        messages: state.messages.map((msg) =>
-          messageIds.includes(msg._id)
-            ? {
-                ...msg,
-                status,
-                readAt: readAt ?? msg.readAt,
-                deliveredAt: deliveredAt ?? msg.deliveredAt,
-              }
-            : msg
-        ),
-      }));
-    });
-
-    socket.on("messageReactionUpdate", ({ messageId, reactions }) => {
-      if (!messageId) return;
-      set((state) => ({
-        messages: state.messages.map((msg) =>
-          String(msg._id) === String(messageId) ? { ...msg, reactions } : msg
-        ),
-      }));
-    });
-
-    socket.on("messageUpdated", (updatedMessage) => {
-      if (!updatedMessage?._id) return;
-      set((state) => ({
-        messages: state.messages.map((msg) =>
-          String(msg._id) === String(updatedMessage._id)
-            ? {
-                ...msg,
-                text: updatedMessage.text,
-                editedAt: updatedMessage.editedAt,
-                updatedAt: updatedMessage.updatedAt,
-              }
-            : msg
-        ),
-        pinnedMessages: state.pinnedMessages.map((msg) =>
-          String(msg._id) === String(updatedMessage._id)
-            ? {
-                ...msg,
-                text: updatedMessage.text,
-                editedAt: updatedMessage.editedAt,
-              }
-            : msg
-        ),
-        starredMessages: state.starredMessages.map((msg) =>
-          String(msg._id) === String(updatedMessage._id)
-            ? {
-                ...msg,
-                text: updatedMessage.text,
-                editedAt: updatedMessage.editedAt,
-              }
-            : msg
-        ),
-        chats: state.chats.map((chat) =>
-          isChatLastMessage(chat, updatedMessage)
-            ? {
-                ...chat,
-                lastMessageText: updatedMessage.text || "",
-              }
-            : chat
-        ),
-      }));
-    });
-
-    socket.on("messageDeleted", (deletedMessage) => {
-      if (!deletedMessage?._id) return;
-      set((state) => ({
-        messages: state.messages.map((msg) =>
-          String(msg._id) === String(deletedMessage._id)
-            ? {
-                ...msg,
-                text: "",
-                image: "",
-                images: [],
-                linkPreview: null,
-                deletedAt: deletedMessage.deletedAt,
-                deletedBy: deletedMessage.deletedBy,
-              }
-            : msg
-        ),
-        pinnedMessages: state.pinnedMessages.filter(
-          (msg) => String(msg._id) !== String(deletedMessage._id)
-        ),
-        starredMessages: state.starredMessages.filter(
-          (msg) => String(msg._id) !== String(deletedMessage._id)
-        ),
-        chats: state.chats.map((chat) =>
-          isChatLastMessage(chat, deletedMessage)
-            ? {
-                ...chat,
-                lastMessageText: "Message deleted",
-                lastMessageImage: "",
-                lastMessageImages: [],
-              }
-            : chat
-        ),
-      }));
-    });
-
-    socket.on("messagePinned", (updatedMessage) => {
-      if (!updatedMessage?._id) return;
-      const authUser = useAuthStore.getState().authUser;
-      const isPinnedForMe = updatedMessage.pinnedBy?.some(
-        (id) => String(id) === String(authUser?._id)
-      );
-      set((state) => ({
-        messages: state.messages.map((msg) =>
-          String(msg._id) === String(updatedMessage._id)
-            ? { ...msg, pinnedBy: updatedMessage.pinnedBy || [] }
-            : msg
-        ),
-        pinnedMessages: isPinnedForMe
-          ? [
-              updatedMessage,
-              ...state.pinnedMessages.filter(
-                (m) => String(m._id) !== String(updatedMessage._id)
-              ),
-            ]
-          : state.pinnedMessages.filter(
-              (m) => String(m._id) !== String(updatedMessage._id)
-            ),
-      }));
-    });
-
-    socket.on("messageStarred", (updatedMessage) => {
-      if (!updatedMessage?._id) return;
-      const authUser = useAuthStore.getState().authUser;
-      const isStarredForMe = updatedMessage.starredBy?.some(
-        (id) => String(id) === String(authUser?._id)
-      );
-      set((state) => ({
-        messages: state.messages.map((msg) =>
-          String(msg._id) === String(updatedMessage._id)
-            ? { ...msg, starredBy: updatedMessage.starredBy || [] }
-            : msg
-        ),
-        starredMessages: isStarredForMe
-          ? [
-              updatedMessage,
-              ...state.starredMessages.filter(
-                (m) => String(m._id) !== String(updatedMessage._id)
-              ),
-            ]
-          : state.starredMessages.filter(
-              (m) => String(m._id) !== String(updatedMessage._id)
-            ),
-      }));
-    });
-
-    socket.on("typing:start", ({ fromUserId }) => {
-      if (!fromUserId) return;
-      set((state) => {
-        if (state.typingByUserId[fromUserId]) return state;
-        return {
-          typingByUserId: { ...state.typingByUserId, [fromUserId]: true },
-        };
-      });
-      if (typingTimeouts.has(fromUserId)) {
-        clearTimeout(typingTimeouts.get(fromUserId));
-      }
-      const timeoutId = setTimeout(() => {
-        set((state) => {
-          if (!state.typingByUserId[fromUserId]) return state;
-          return {
-            typingByUserId: { ...state.typingByUserId, [fromUserId]: false },
-          };
-        });
-        typingTimeouts.delete(fromUserId);
-      }, 3000);
-      typingTimeouts.set(fromUserId, timeoutId);
-    });
-
-    socket.on("typing:stop", ({ fromUserId }) => {
-      if (!fromUserId) return;
-      if (typingTimeouts.has(fromUserId)) {
-        clearTimeout(typingTimeouts.get(fromUserId));
-        typingTimeouts.delete(fromUserId);
-      }
-      const timeoutId = setTimeout(() => {
-        set((state) => {
-          if (!state.typingByUserId[fromUserId]) return state;
-          return {
-            typingByUserId: { ...state.typingByUserId, [fromUserId]: false },
-          };
-        });
-        typingTimeouts.delete(fromUserId);
-      }, 1200);
-      typingTimeouts.set(fromUserId, timeoutId);
     });
   },
 
   unsubscribeFromMessages: () => {
     const socket = useAuthStore.getState().socket;
-    socket.off("newMessage");
-    socket.off("messageStatusUpdate");
-    socket.off("typing:start");
-    socket.off("typing:stop");
-    socket.off("messageReactionUpdate");
-    socket.off("messageUpdated");
-    socket.off("messageDeleted");
-    socket.off("messagePinned");
-    socket.off("messageStarred");
+    socket.off("socket:event");
   },
 
   emitTypingStart: (toUserId) => {

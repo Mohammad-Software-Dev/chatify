@@ -15,6 +15,20 @@ const resetChatStore = async () => {
 const BASE_URL =
   import.meta.env.MODE === "development" ? "http://localhost:3000" : "/";
 
+const SUPPORTED_ENVELOPE_VERSIONS = new Set([1]);
+const seenPresenceEventIds = new Set();
+const MAX_SEEN_PRESENCE = 1000;
+const markPresenceSeen = (id) => {
+  if (!id) return false;
+  if (seenPresenceEventIds.has(id)) return false;
+  seenPresenceEventIds.add(id);
+  if (seenPresenceEventIds.size > MAX_SEEN_PRESENCE) {
+    const [first] = seenPresenceEventIds;
+    seenPresenceEventIds.delete(first);
+  }
+  return true;
+};
+
 export const useAuthStore = create((set, get) => ({
   authUser: null,
   isCheckingAuth: true,
@@ -121,59 +135,78 @@ export const useAuthStore = create((set, get) => ({
 
     set({ socket });
 
-    // listen for online users event
-    socket.on("getOnlineUsers", (userIds) => {
-      set((state) => {
-        const previousOnlineUsers = new Set(state.onlineUsers);
-        const currentOnlineUsers = new Set(userIds);
-        const now = new Date().toISOString();
-        const lastSeenByUserId = { ...state.lastSeenByUserId };
-        const presenceByUserId = { ...state.presenceByUserId };
+    socket.on("socket:event", (event) => {
+      if (!event?.type) return;
+      const version = event.v ?? 1;
+      if (!SUPPORTED_ENVELOPE_VERSIONS.has(version)) {
+        if (import.meta.env.DEV) {
+          console.warn("Unsupported socket envelope version", version, event);
+        }
+        return;
+      }
+      if (!markPresenceSeen(event.id)) return;
+      if (event.type === "presence:list") {
+        const userIds = event.payload?.userIds || [];
+        set((state) => {
+          const previousOnlineUsers = new Set(state.onlineUsers);
+          const currentOnlineUsers = new Set(userIds);
+          const now = new Date().toISOString();
+          const lastSeenByUserId = { ...state.lastSeenByUserId };
+          const presenceByUserId = { ...state.presenceByUserId };
 
-        previousOnlineUsers.forEach((userId) => {
-          if (!currentOnlineUsers.has(userId)) {
-            lastSeenByUserId[userId] = now;
+          previousOnlineUsers.forEach((userId) => {
+            if (!currentOnlineUsers.has(userId)) {
+              lastSeenByUserId[userId] = now;
+              presenceByUserId[userId] = {
+                ...(presenceByUserId[userId] || {}),
+                isOnline: false,
+                lastSeenAt: now,
+              };
+            }
+          });
+
+          userIds.forEach((userId) => {
             presenceByUserId[userId] = {
               ...(presenceByUserId[userId] || {}),
-              isOnline: false,
-              lastSeenAt: now,
+              isOnline: true,
             };
-          }
-        });
+          });
 
-        userIds.forEach((userId) => {
-          presenceByUserId[userId] = {
-            ...(presenceByUserId[userId] || {}),
-            isOnline: true,
+          return { onlineUsers: userIds, lastSeenByUserId, presenceByUserId };
+        });
+        return;
+      }
+      if (event.type === "presence:update") {
+        const { userId, isOnline, lastActiveAt, lastSeenAt } =
+          event.payload || {};
+        if (!userId) return;
+        set((state) => {
+          const previousTs = state.presenceByUserId[userId]?.lastEventTs;
+          if (event.ts && previousTs && event.ts < previousTs) return state;
+          return {
+            presenceByUserId: {
+              ...state.presenceByUserId,
+              [userId]: {
+                ...(state.presenceByUserId[userId] || {}),
+                isOnline:
+                  typeof isOnline === "boolean"
+                    ? isOnline
+                    : state.presenceByUserId[userId]?.isOnline,
+                lastActiveAt:
+                  lastActiveAt || state.presenceByUserId[userId]?.lastActiveAt,
+                lastSeenAt:
+                  lastSeenAt || state.presenceByUserId[userId]?.lastSeenAt,
+                lastEventTs: event.ts || state.presenceByUserId[userId]?.lastEventTs,
+              },
+            },
           };
         });
-
-        return { onlineUsers: userIds, lastSeenByUserId, presenceByUserId };
-      });
+        return;
+      }
+      if (import.meta.env.DEV) {
+        console.warn("Unhandled socket event", event.type, event);
+      }
     });
-
-    socket.on(
-      "presence:update",
-      ({ userId, isOnline, lastActiveAt, lastSeenAt }) => {
-      if (!userId) return;
-      set((state) => ({
-        presenceByUserId: {
-          ...state.presenceByUserId,
-          [userId]: {
-            ...(state.presenceByUserId[userId] || {}),
-            isOnline:
-              typeof isOnline === "boolean"
-                ? isOnline
-                : state.presenceByUserId[userId]?.isOnline,
-            lastActiveAt:
-              lastActiveAt || state.presenceByUserId[userId]?.lastActiveAt,
-            lastSeenAt:
-              lastSeenAt || state.presenceByUserId[userId]?.lastSeenAt,
-          },
-        },
-      }));
-    }
-    );
   },
 
   disconnectSocket: () => {
