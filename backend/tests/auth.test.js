@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app.js";
 import User from "../src/models/User.js";
@@ -86,6 +86,35 @@ describeDb("Auth", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers["set-cookie"]).toBeDefined();
+  });
+
+  it("does not log raw login identifiers for expected auth failures", async () => {
+    const previousLogLevel = process.env.LOG_LEVEL;
+    process.env.LOG_LEVEL = "debug";
+    const spies = ["debug", "info", "warn", "error"].map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {})
+    );
+
+    try {
+      const res = await request(app).post("/api/auth/login").send({
+        email: "private-login@example.com",
+        password: "password123",
+      });
+
+      expect(res.status).toBe(400);
+      const output = spies
+        .flatMap((spy) => spy.mock.calls.flat())
+        .map(String)
+        .join(" ");
+      expect(output).not.toContain("private-login@example.com");
+    } finally {
+      spies.forEach((spy) => spy.mockRestore());
+      if (previousLogLevel === undefined) {
+        delete process.env.LOG_LEVEL;
+      } else {
+        process.env.LOG_LEVEL = previousLogLevel;
+      }
+    }
   });
 
   it("sets hardened cookie attributes", async () => {

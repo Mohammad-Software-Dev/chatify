@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
 import { useAuthStore } from "./useAuthStore";
+import { registerStoreReset } from "./resetRegistry";
 
 const MESSAGE_PAGE_SIZE = 20;
 const QUEUE_STORAGE_KEY = "chatify.pendingQueue";
@@ -98,6 +99,7 @@ export const useChatStore = create((set, get) => ({
   pendingScrollMessageId: null,
   isUsersLoading: false,
   isAdminContactLoading: false,
+  hasLoadedAdminContact: false,
   isContactSearching: false,
   isMessagesLoading: false,
   isLoadingMoreMessages: false,
@@ -134,6 +136,7 @@ export const useChatStore = create((set, get) => ({
       selectedUser: null,
       isUsersLoading: false,
       isAdminContactLoading: false,
+      hasLoadedAdminContact: false,
       isContactSearching: false,
       isMessagesLoading: false,
       isLoadingMoreMessages: false,
@@ -170,13 +173,21 @@ export const useChatStore = create((set, get) => ({
     set({ pendingScrollMessageId: messageId }),
   clearPendingScrollMessageId: () => set({ pendingScrollMessageId: null }),
 
-  getAdminContact: async () => {
+  getAdminContact: async ({ force = false } = {}) => {
+    const { adminContact, hasLoadedAdminContact, isAdminContactLoading } =
+      get();
+    if (!force && (hasLoadedAdminContact || isAdminContactLoading)) {
+      return adminContact;
+    }
     set({ isAdminContactLoading: true });
     try {
       const res = await axiosInstance.get("/messages/admin-contact");
-      set({ adminContact: res.data || null });
+      const nextAdminContact = res.data || null;
+      set({ adminContact: nextAdminContact, hasLoadedAdminContact: true });
+      return nextAdminContact;
     } catch {
-      set({ adminContact: null });
+      set({ adminContact: null, hasLoadedAdminContact: true });
+      return null;
     } finally {
       set({ isAdminContactLoading: false });
     }
@@ -1240,3 +1251,5 @@ export const useChatStore = create((set, get) => ({
     socket.emit("typing:stop", { toUserId });
   },
 }));
+
+registerStoreReset(() => useChatStore.getState().resetForLogout());

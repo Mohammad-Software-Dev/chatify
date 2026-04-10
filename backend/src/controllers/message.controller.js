@@ -6,6 +6,7 @@ import Conversation from "../models/Conversation.js";
 import mongoose from "mongoose";
 import { fetchLinkPreview } from "../lib/linkPreview.js";
 import { ENV } from "../lib/env.js";
+import logger from "../lib/logger.js";
 import {
   decryptJson,
   decryptString,
@@ -82,7 +83,7 @@ export const getAdminContact = async (req, res) => {
 
     return res.status(200).json(admin);
   } catch (error) {
-    console.log("Error in getAdminContact:", error);
+    logger.warn("Admin contact lookup failed:", error.message);
     return res.status(200).json(null);
   }
 };
@@ -120,7 +121,7 @@ export const getAllContacts = async (req, res) => {
 
     res.status(200).json(filteredUsers);
   } catch (error) {
-    console.log("Error in getAllContacts:", error);
+    logger.error("Contact search failed:", error.message);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -266,7 +267,7 @@ export const getMessagesByUserId = async (req, res) => {
 
     res.status(200).json(applyDecryptedFieldsArray(normalizedMessages));
   } catch (error) {
-    console.log("Error in getMessages controller: ", error.message);
+    logger.error("Get messages failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -291,7 +292,7 @@ export const getMessageById = async (req, res) => {
 
     res.status(200).json(applyDecryptedFields(message));
   } catch (error) {
-    console.error("Error in getMessageById:", error.message);
+    logger.error("Get message by id failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -452,7 +453,7 @@ export const sendMessage = async (req, res) => {
 
     res.status(201).json(messagePayload);
   } catch (error) {
-    console.log("Error in sendMessage controller: ", error.message);
+    logger.error("Send message failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -513,7 +514,7 @@ export const addReaction = async (req, res) => {
 
     res.status(200).json({ reactions });
   } catch (error) {
-    console.error("Error in addReaction:", error.message);
+    logger.error("Add reaction failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -557,7 +558,7 @@ export const searchMessages = async (req, res) => {
 
     res.status(200).json(applyDecryptedFieldsArray(results));
   } catch (error) {
-    console.error("Error in searchMessages:", error.message);
+    logger.error("Search messages failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -587,7 +588,7 @@ export const getPinnedMessages = async (req, res) => {
 
     res.status(200).json(applyDecryptedFieldsArray(results));
   } catch (error) {
-    console.error("Error in getPinnedMessages:", error.message);
+    logger.error("Get pinned messages failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -617,7 +618,7 @@ export const getStarredMessages = async (req, res) => {
 
     res.status(200).json(applyDecryptedFieldsArray(results));
   } catch (error) {
-    console.error("Error in getStarredMessages:", error.message);
+    logger.error("Get starred messages failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -663,7 +664,7 @@ export const togglePin = async (req, res) => {
 
     res.status(200).json(payload);
   } catch (error) {
-    console.error("Error in togglePin:", error.message);
+    logger.error("Toggle pin failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -709,7 +710,7 @@ export const toggleStar = async (req, res) => {
 
     res.status(200).json(payload);
   } catch (error) {
-    console.error("Error in toggleStar:", error.message);
+    logger.error("Toggle star failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -788,7 +789,7 @@ export const editMessage = async (req, res) => {
 
     res.status(200).json(payload);
   } catch (error) {
-    console.error("Error in editMessage:", error.message);
+    logger.error("Edit message failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -836,7 +837,7 @@ export const deleteMessage = async (req, res) => {
 
     res.status(200).json(payload);
   } catch (error) {
-    console.error("Error in deleteMessage:", error.message);
+    logger.error("Delete message failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -854,7 +855,7 @@ export const uploadAttachment = async (req, res) => {
       publicId: upload.public_id,
     });
   } catch (error) {
-    console.log("Error in uploadAttachment controller: ", error.message);
+    logger.error("Upload attachment failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -869,7 +870,7 @@ export const deleteAttachment = async (req, res) => {
     const result = await cloudinary.uploader.destroy(publicId);
     res.status(200).json({ result: result?.result || "unknown" });
   } catch (error) {
-    console.log("Error in deleteAttachment controller: ", error.message);
+    logger.error("Delete attachment failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -1040,7 +1041,7 @@ export const getChatPartners = async (req, res) => {
 
     res.status(200).json(response);
   } catch (error) {
-    console.error("Error in getChatPartners: ", error.message);
+    logger.error("Get chat partners failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -1090,7 +1091,7 @@ export const markMessagesAsRead = async (req, res) => {
 
     res.status(200).json({ updated: messagesToMark.length });
   } catch (error) {
-    console.error("Error in markMessagesAsRead: ", error.message);
+    logger.error("Mark messages as read failed:", error.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };

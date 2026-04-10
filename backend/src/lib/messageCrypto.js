@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { ENV } from "./env.js";
+import logger from "./logger.js";
 
 const KEY_HEX_REGEX = /^[0-9a-fA-F]{64}$/;
 
@@ -38,7 +39,7 @@ const resolveKeyRing = () => {
         keyRing.set(id, parseKeyValue(value));
       } catch (error) {
         if (!keyErrorLogged) {
-          console.error("Invalid MESSAGE_ENC_KEYS entry:", error.message);
+          logger.error("Invalid MESSAGE_ENC_KEYS entry:", error.message);
           keyErrorLogged = true;
         }
       }
@@ -50,7 +51,7 @@ const resolveKeyRing = () => {
       currentKeyId = "default";
     } catch (error) {
       if (!keyErrorLogged) {
-        console.error("Invalid MESSAGE_ENC_KEY:", error.message);
+        logger.error("Invalid MESSAGE_ENC_KEY:", error.message);
         keyErrorLogged = true;
       }
     }
@@ -140,7 +141,7 @@ export const decryptString = (payload, keyId) => {
     return null;
   } catch (error) {
     if (!keyErrorLogged) {
-      console.error("Failed to decrypt message payload:", error.message);
+      logger.error("Failed to decrypt message payload:", error.message);
       keyErrorLogged = true;
     }
     return null;
@@ -159,7 +160,7 @@ export const decryptJson = (payload, keyId) => {
     return JSON.parse(decrypted);
   } catch (error) {
     if (!keyErrorLogged) {
-      console.error("Failed to parse decrypted JSON:", error.message);
+      logger.error("Failed to parse decrypted JSON:", error.message);
       keyErrorLogged = true;
     }
     return null;

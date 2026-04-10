@@ -8,6 +8,8 @@
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "test": "vitest",
+    "seed-admin": "node scripts/seed-admin.js",
+    "e2e:server": "node scripts/e2e-server.js",
     "encrypt-messages": "node scripts/encrypt-messages.js",
     "rotate-message-key": "node scripts/rotate-message-key.js"
   },

@@ -11,6 +11,7 @@ import { ENV } from "../lib/env.js";
 import cloudinary from "../lib/cloudinary.js";
 import RefreshToken from "../models/RefreshToken.js";
 import jwt from "jsonwebtoken";
+import logger from "../lib/logger.js";
 
 const normalizeUsername = (username) => username?.trim().toLowerCase();
 
@@ -111,7 +112,7 @@ export const signup = async (req, res) => {
 
     const user = await User.findOne({ email });
     if (user) {
-      console.log("Signup failed: email already exists");
+      logger.debug("Signup rejected: duplicate email");
       return res.status(400).json({ message: "Email already exists" });
     }
 
@@ -127,7 +128,7 @@ export const signup = async (req, res) => {
         username: finalUsername,
       }).select("_id");
       if (existingUsername) {
-        console.log("Signup failed: username already exists");
+        logger.debug("Signup rejected: duplicate username");
         return res.status(400).json({ message: "Username already exists" });
       }
     } else {
@@ -170,13 +171,13 @@ export const signup = async (req, res) => {
           ENV.CLIENT_URL
         );
       } catch (error) {
-        console.error("Failed to send welcome email:", error);
+        logger.warn("Welcome email failed:", error.message);
       }
     } else {
       res.status(400).json({ message: "Invalid user data" });
     }
   } catch (error) {
-    console.log("Error in signup controller:", error);
+    logger.error("Signup controller failed:", error.message);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -191,7 +192,7 @@ export const login = async (req, res) => {
   try {
     const user = await User.findOne({ email });
     if (!user) {
-      console.log("Login failed: user not found");
+      logger.debug("Login rejected: user not found");
       return res.status(400).json({ message: "Invalid credentials" });
     }
     // never tell the client which one is incorrect: password or email
@@ -199,7 +200,7 @@ export const login = async (req, res) => {
     const ensuredUser = await ensureUsernameForUser(user);
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
     if (!isPasswordCorrect) {
-      console.log("Login failed: invalid password");
+      logger.debug("Login rejected: invalid password");
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
@@ -213,7 +214,7 @@ export const login = async (req, res) => {
       profilePic: ensuredUser.profilePic,
     });
   } catch (error) {
-    console.error("Error in login controller:", error);
+    logger.error("Login controller failed:", error.message);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -239,7 +240,7 @@ export const checkAuth = async (req, res) => {
     const ensuredUser = await ensureUsernameForUser(req.user);
     res.status(200).json(ensuredUser);
   } catch (error) {
-    console.log("Error in checkAuth controller:", error);
+    logger.error("checkAuth controller failed:", error.message);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -270,7 +271,7 @@ export const refreshSession = async (req, res) => {
     await issueAuthCookies(res, decoded.userId);
     res.status(200).json({ ok: true });
   } catch (error) {
-    console.log("Error in refreshSession controller:", error.message);
+    logger.debug("Refresh session rejected:", error.message);
     res.status(401).json({ message: "Unauthorized - Refresh failed" });
   }
 };
@@ -293,7 +294,7 @@ export const updateProfile = async (req, res) => {
 
     res.status(200).json(updatedUser);
   } catch (error) {
-    console.log("Error in update profile:", error);
+    logger.error("Update profile failed:", error.message);
     res.status(500).json({ message: "Internal server error" });
   }
 };
@@ -326,7 +327,7 @@ export const updateUsername = async (req, res) => {
 
     res.status(200).json(updatedUser);
   } catch (error) {
-    console.error("Error in updateUsername controller:", error.message);
+    logger.error("Update username failed:", error.message);
     res.status(500).json({ message: "Internal server error" });
   }
 };

@@ -126,12 +126,12 @@ function ContactList() {
           <p className="text-xs text-slate-400 mt-2">Searching...</p>
         ) : null}
       </div>
+      {adminContact ? renderContact(adminContact, { isAdmin: true }) : null}
       {query.trim().length === 0 && (
         <div className="text-sm text-slate-400">
           Start typing a username to see results.
         </div>
       )}
-      {adminContact ? renderContact(adminContact, { isAdmin: true }) : null}
       {visibleContacts.map((contact) => renderContact(contact))}
       {query.trim().length > 0 &&
         visibleContacts.length === 0 &&

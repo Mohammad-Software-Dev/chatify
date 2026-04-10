@@ -526,6 +526,7 @@ function MessageInput() {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
+          aria-label="Attach image"
           className={`bg-slate-800/50 text-slate-400 hover:text-slate-200 rounded-lg px-4 transition-colors ${
             attachments.length > 0 ? "accent-text-strong" : ""
           }`}
@@ -535,6 +536,7 @@ function MessageInput() {
         <button
           type="submit"
           disabled={!canSend}
+          aria-label="Send message"
           className="accent-gradient rounded-lg px-4 py-2 font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <SendIcon className="w-5 h-5" />

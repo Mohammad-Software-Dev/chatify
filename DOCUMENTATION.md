@@ -23,6 +23,7 @@ Chatify is a real-time messaging application with a React + Vite frontend and an
 - Pinned/starred messages
 - Per-chat message search
 - Contacts discovery by username (exact match first)
+- Configured admin contact pinned for non-admin users
 - Image uploads with Cloudinary
 - Sequential attachment uploads + cancel/retry
 - Drag-and-drop uploads + draft persistence
@@ -62,6 +63,10 @@ Set these in `backend/.env` or your hosting provider dashboard.
 - `CLIENT_URL`
 - `NODE_ENV`
 - `ADMIN_USERNAME` (optional; username to pin in Contacts for non-admin users)
+- `ADMIN_EMAIL` (required by `seed-admin`)
+- `ADMIN_PASSWORD` (required by `seed-admin`)
+- `ADMIN_FULL_NAME` (optional; defaults to `Chatify Admin`)
+- `LOG_LEVEL` (`debug`, `info`, `warn`, `error`, or `silent`; optional)
 
 ### Email (Resend)
 - `RESEND_API_KEY`
@@ -122,6 +127,13 @@ pnpm --dir backend encrypt-messages
 pnpm --dir backend rotate-message-key
 ```
 
+### Seed Admin Contact
+Create the configured pinned admin user:
+```
+pnpm --dir backend seed-admin
+```
+Required env: `MONGO_URI`, `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`.
+
 ## Testing
 ### Backend
 ```
@@ -136,6 +148,16 @@ Notes:
 ```
 pnpm --dir frontend test
 ```
+
+Optional Vite env overrides:
+- `VITE_API_BASE_URL` (defaults to `http://localhost:3000/api` in dev and `/api` in production)
+- `VITE_SOCKET_URL` (defaults to the API origin in dev and `/` in production)
+
+### Browser Smoke Test
+```
+pnpm --dir frontend test:e2e
+```
+This starts an e2e backend with MongoMemoryServer, seeds the admin user, starts Vite, and verifies a new user can message the pinned admin.
 
 ### Manual QA
 See `TEST_SCENARIOS.md`.
@@ -155,6 +177,7 @@ Base URL: `/api`
 
 **Messages**
 - `GET /messages/chats`
+- `GET /messages/admin-contact`
 - `GET /messages/contacts?username=...`
 - `GET /messages/:id` (chat history)
 - `GET /messages/item/:id`
@@ -199,3 +222,6 @@ Base URL: `/api`
 
 **Cloudinary upload failures**
 - Validate Cloudinary credentials and image size limits.
+
+**DaisyUI `@property` build warning**
+- This can appear from third-party generated CSS. It is non-failing; keep CSS optimization enabled unless the warning becomes a build error.

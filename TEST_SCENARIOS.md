@@ -28,6 +28,9 @@ Mark each item ✅ when verified.
 - [ ] Typing indicators appear and disappear correctly.
 
 ## 4) Contacts & User Discovery
+- [ ] With `ADMIN_USERNAME` configured, non-admin users see the Admin contact pinned above search results.
+- [ ] Clicking the pinned Admin contact opens the admin conversation.
+- [ ] The configured admin user does not see themself pinned.
 - [ ] Search by username works (exact match appears first).
 - [ ] Partial match returns relevant users (not the current user).
 - [ ] Empty search clears results and shows no contacts.

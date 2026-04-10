@@ -19,6 +19,7 @@ See `DOCUMENTATION.md` for full project documentation.
 - Chat list with last message preview and unread counts
 - Pagination: load latest 20 messages and fetch older on scroll
 - Contacts discovery via username search (exact match first)
+- Configured admin contact pinned in Contacts for non-admin users
 - Image uploads via Cloudinary (multi-attach, drag-drop, previews, compression)
 - Per-file upload queue with progress, cancel, retry, and draft persistence
 - Offline queue with retries and exponential backoff
@@ -44,11 +45,13 @@ See `DOCUMENTATION.md` for full project documentation.
 Frontend:
 - `pnpm --dir frontend dev`
 - `pnpm --dir frontend build`
- - `pnpm --dir frontend test`
+- `pnpm --dir frontend test`
+- `pnpm --dir frontend test:e2e`
 
 Backend:
 - `pnpm --dir backend dev` (if configured) or `node src/server.js`
- - `pnpm --dir backend test`
+- `pnpm --dir backend test`
+- `pnpm --dir backend seed-admin`
 
 ## Environment
 Set these in `backend/.env`:
@@ -62,6 +65,10 @@ Set these in `backend/.env`:
 - `ARCJET_KEY`
 - `ARCJET_ENV`
 - `ADMIN_USERNAME` (optional, pins this user in Contacts for non-admin users)
+- `ADMIN_EMAIL` (required by `seed-admin`)
+- `ADMIN_PASSWORD` (required by `seed-admin`)
+- `ADMIN_FULL_NAME` (optional, default `Chatify Admin`)
+- `LOG_LEVEL` (optional, `debug`, `info`, `warn`, `error`, or `silent`)
 - `COOKIE_SAMESITE` (optional)
 - `COOKIE_SECURE` (optional)
 - `COOKIE_DOMAIN` (optional)
@@ -75,5 +82,6 @@ Set these in `backend/.env`:
 
 ## Maintenance
 Backend encryption helpers:
+- `node scripts/seed-admin.js` to create the configured admin user
 - `node scripts/encrypt-messages.js` to encrypt historical plaintext messages
 - `node scripts/rotate-message-key.js` to re-encrypt messages with the current key

@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { ENV } from "./env.js";
 import { socketAuthMiddleware } from "../middleware/socket.auth.middleware.js";
 import User from "../models/User.js";
+import logger from "./logger.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -49,7 +50,7 @@ export function getReceiverSocketIds(userId) {
 const userSocketMap = new Map(); // {userId:Set<socketId>}
 
 io.on("connection", (socket) => {
-  console.log("A user connected");
+  logger.debug("A user connected");
 
   const userId = socket.userId;
   const now = new Date();
@@ -58,7 +59,7 @@ io.on("connection", (socket) => {
   userSocketMap.set(userId, existingSockets);
 
   User.findByIdAndUpdate(userId, { lastActiveAt: now }).catch((error) => {
-    console.log("Error updating lastActiveAt:", error.message);
+    logger.warn("Error updating lastActiveAt:", error.message);
   });
   emitEnvelopeToAll("presence:update", {
     userId,
@@ -74,7 +75,7 @@ io.on("connection", (socket) => {
     const pingTime = new Date();
     User.findByIdAndUpdate(userId, { lastActiveAt: pingTime }).catch(
       (error) => {
-        console.log("Error updating lastActiveAt:", error.message);
+        logger.warn("Error updating lastActiveAt:", error.message);
       }
     );
     emitEnvelopeToAll("presence:update", {
@@ -127,7 +128,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("A user disconnected");
+    logger.debug("A user disconnected");
     const disconnectTime = new Date();
     const sockets = userSocketMap.get(userId);
     if (sockets) {
@@ -141,7 +142,7 @@ io.on("connection", (socket) => {
     });
     User.findByIdAndUpdate(userId, { lastSeenAt: disconnectTime }).catch(
       (error) => {
-        console.log("Error updating lastSeenAt:", error.message);
+        logger.warn("Error updating lastSeenAt:", error.message);
       }
     );
     emitEnvelopeToAll("presence:update", {

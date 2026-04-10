@@ -2,18 +2,19 @@ import { create } from "zustand";
 import { axiosInstance } from "../lib/axios";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
+import { resetRegisteredStores } from "./resetRegistry";
 
-const resetChatStore = async () => {
-  try {
-    const { useChatStore } = await import("./useChatStore");
-    useChatStore.getState().resetForLogout();
-  } catch (error) {
-    console.log("Error resetting chat state:", error);
+const resetChatStore = () => resetRegisteredStores();
+
+const getSocketBaseURL = () => {
+  if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL.replace(/\/api\/?$/, "");
   }
+  return import.meta.env.MODE === "development" ? "http://localhost:3000" : "/";
 };
 
-const BASE_URL =
-  import.meta.env.MODE === "development" ? "http://localhost:3000" : "/";
+const BASE_URL = getSocketBaseURL();
 
 const SUPPORTED_ENVELOPE_VERSIONS = new Set([1]);
 const CHAT_EVENT_TYPES = new Set([
@@ -61,7 +62,7 @@ export const useAuthStore = create((set, get) => ({
     } catch (error) {
       console.log("Error in authCheck:", error);
       set({ authUser: null });
-      await resetChatStore();
+      resetChatStore();
     } finally {
       set({ isCheckingAuth: false });
     }
@@ -104,7 +105,7 @@ export const useAuthStore = create((set, get) => ({
       set({ authUser: null });
       toast.success("Logged out successfully");
       get().disconnectSocket();
-      await resetChatStore();
+      resetChatStore();
     } catch (error) {
       toast.error("Error logging out");
       console.log("Logout error:", error);
