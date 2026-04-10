@@ -1,5 +1,6 @@
 import express from "express";
 import {
+  getAdminContact,
   getAllContacts,
   getChatPartners,
   getMessagesByUserId,
@@ -48,6 +49,7 @@ const router = express.Router();
 // this is actually more efficient since unauthenticated requests get blocked by rate limiting before hitting the auth middleware.
 router.use(arcjetProtection, protectRoute);
 
+router.get("/admin-contact", getAdminContact);
 router.get(
   "/contacts",
   contactSearchLimiter,

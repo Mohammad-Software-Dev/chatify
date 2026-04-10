@@ -7,6 +7,8 @@ import { useShallow } from "zustand/react/shallow";
 
 function ContactList() {
   const {
+    adminContact,
+    getAdminContact,
     getAllContacts,
     allContacts,
     setSelectedUser,
@@ -15,6 +17,8 @@ function ContactList() {
     selectedUser,
   } = useChatStore(
     useShallow((state) => ({
+      adminContact: state.adminContact,
+      getAdminContact: state.getAdminContact,
       getAllContacts: state.getAllContacts,
       allContacts: state.allContacts,
       setSelectedUser: state.setSelectedUser,
@@ -27,6 +31,58 @@ function ContactList() {
     useShallow((state) => ({ onlineUsers: state.onlineUsers }))
   );
   const [query, setQuery] = useState("");
+  const visibleContacts = adminContact
+    ? allContacts.filter((contact) => contact._id !== adminContact._id)
+    : allContacts;
+
+  const renderContact = (contact, { isAdmin = false } = {}) => (
+    <div
+      key={contact._id}
+      className={`border p-4 rounded-lg cursor-pointer transition-colors ${
+        selectedUser?._id === contact._id
+          ? "selected-chat"
+          : "accent-soft hover:opacity-90"
+      }`}
+      onClick={() => setSelectedUser(contact)}
+    >
+      <div className="flex items-center gap-3 justify-between">
+        <div
+          className={`avatar ${
+            onlineUsers?.includes(contact._id) ? "online" : "offline"
+          }`}
+        >
+          <div className="size-12 rounded-full">
+            <img
+              src={contact.profilePic || "/avatar.png"}
+              alt={contact.fullName}
+            />
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h4 className="text-slate-200 font-medium truncate">
+              {contact.fullName}
+            </h4>
+            {isAdmin ? (
+              <span className="text-[10px] font-semibold uppercase tracking-wide accent-bg px-2 py-0.5 rounded-full">
+                Admin
+              </span>
+            ) : null}
+          </div>
+          <p className="text-xs text-slate-400 truncate">@{contact.username}</p>
+        </div>
+        {unreadByUserId[contact._id] > 0 && (
+          <span className="text-xs font-semibold accent-bg px-2 py-0.5 rounded-full">
+            {unreadByUserId[contact._id]}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  useEffect(() => {
+    getAdminContact();
+  }, [getAdminContact]);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -75,44 +131,10 @@ function ContactList() {
           Start typing a username to see results.
         </div>
       )}
-      {allContacts.map((contact) => (
-        <div
-          key={contact._id}
-          className={`border p-4 rounded-lg cursor-pointer transition-colors ${
-            selectedUser?._id === contact._id
-              ? "selected-chat"
-              : "accent-soft hover:opacity-90"
-          }`}
-          onClick={() => setSelectedUser(contact)}
-        >
-          <div className="flex items-center gap-3 justify-between">
-            <div
-              className={`avatar ${
-                onlineUsers?.includes(contact._id) ? "online" : "offline"
-              }`}
-            >
-              <div className="size-12 rounded-full">
-                <img src={contact.profilePic || "/avatar.png"} />
-              </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <h4 className="text-slate-200 font-medium truncate">
-                {contact.fullName}
-              </h4>
-              <p className="text-xs text-slate-400 truncate">
-                @{contact.username}
-              </p>
-            </div>
-            {unreadByUserId[contact._id] > 0 && (
-              <span className="text-xs font-semibold accent-bg px-2 py-0.5 rounded-full">
-                {unreadByUserId[contact._id]}
-              </span>
-            )}
-          </div>
-        </div>
-      ))}
+      {adminContact ? renderContact(adminContact, { isAdmin: true }) : null}
+      {visibleContacts.map((contact) => renderContact(contact))}
       {query.trim().length > 0 &&
-        allContacts.length === 0 &&
+        visibleContacts.length === 0 &&
         !isContactSearching && (
         <div className="text-sm text-slate-400">No users found.</div>
       )}

@@ -61,6 +61,7 @@ Set these in `backend/.env`:
 - `CLOUDINARY_API_SECRET`
 - `ARCJET_KEY`
 - `ARCJET_ENV`
+- `ADMIN_USERNAME` (optional, pins this user in Contacts for non-admin users)
 - `COOKIE_SAMESITE` (optional)
 - `COOKIE_SECURE` (optional)
 - `COOKIE_DOMAIN` (optional)

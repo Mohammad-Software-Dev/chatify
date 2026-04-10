@@ -5,6 +5,7 @@ import User from "../models/User.js";
 import Conversation from "../models/Conversation.js";
 import mongoose from "mongoose";
 import { fetchLinkPreview } from "../lib/linkPreview.js";
+import { ENV } from "../lib/env.js";
 import {
   decryptJson,
   decryptString,
@@ -63,6 +64,28 @@ const isParticipant = (message, userId) => {
 
 const escapeRegex = (value) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const normalizeUsername = (username) => username?.trim().toLowerCase();
+
+export const getAdminContact = async (req, res) => {
+  try {
+    const adminUsername = normalizeUsername(ENV.ADMIN_USERNAME);
+    if (!adminUsername) return res.status(200).json(null);
+
+    const admin = await User.findOne({ username: adminUsername })
+      .select("-password")
+      .lean();
+    if (!admin) return res.status(200).json(null);
+    if (admin._id.toString() === req.user._id.toString()) {
+      return res.status(200).json(null);
+    }
+
+    return res.status(200).json(admin);
+  } catch (error) {
+    console.log("Error in getAdminContact:", error);
+    return res.status(200).json(null);
+  }
+};
 
 export const getAllContacts = async (req, res) => {
   try {

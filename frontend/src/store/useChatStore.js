@@ -89,6 +89,7 @@ const isChatLastMessage = (chat, message) => {
 };
 
 export const useChatStore = create((set, get) => ({
+  adminContact: null,
   allContacts: [],
   chats: [],
   messages: [],
@@ -96,6 +97,7 @@ export const useChatStore = create((set, get) => ({
   selectedUser: null,
   pendingScrollMessageId: null,
   isUsersLoading: false,
+  isAdminContactLoading: false,
   isContactSearching: false,
   isMessagesLoading: false,
   isLoadingMoreMessages: false,
@@ -125,11 +127,13 @@ export const useChatStore = create((set, get) => ({
     savePendingQueue([]);
     set((state) => ({
       allContacts: [],
+      adminContact: null,
       chats: [],
       messages: [],
       activeTab: "chats",
       selectedUser: null,
       isUsersLoading: false,
+      isAdminContactLoading: false,
       isContactSearching: false,
       isMessagesLoading: false,
       isLoadingMoreMessages: false,
@@ -165,6 +169,18 @@ export const useChatStore = create((set, get) => ({
   setPendingScrollMessageId: (messageId) =>
     set({ pendingScrollMessageId: messageId }),
   clearPendingScrollMessageId: () => set({ pendingScrollMessageId: null }),
+
+  getAdminContact: async () => {
+    set({ isAdminContactLoading: true });
+    try {
+      const res = await axiosInstance.get("/messages/admin-contact");
+      set({ adminContact: res.data || null });
+    } catch {
+      set({ adminContact: null });
+    } finally {
+      set({ isAdminContactLoading: false });
+    }
+  },
 
   getAllContacts: async (username) => {
     set({ isContactSearching: true });

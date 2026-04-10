@@ -61,6 +61,7 @@ Set these in `backend/.env` or your hosting provider dashboard.
 - `JWT_SECRET`
 - `CLIENT_URL`
 - `NODE_ENV`
+- `ADMIN_USERNAME` (optional; username to pin in Contacts for non-admin users)
 
 ### Email (Resend)
 - `RESEND_API_KEY`

@@ -3,6 +3,7 @@ import request from "supertest";
 import { createApp } from "../src/app.js";
 import User from "../src/models/User.js";
 import Message from "../src/models/Message.js";
+import { ENV } from "../src/lib/env.js";
 
 process.env.MESSAGE_ENC_STORE_PLAINTEXT =
   process.env.MESSAGE_ENC_STORE_PLAINTEXT || "true";
@@ -29,6 +30,7 @@ const signupAndLogin = async (email, username) => {
 
 describeDb("Messages", () => {
   beforeEach(async () => {
+    ENV.ADMIN_USERNAME = undefined;
     await Message.deleteMany({});
     await User.deleteMany({});
   });
@@ -171,5 +173,54 @@ describeDb("Messages", () => {
     expect(res.status).toBe(201);
     expect(res.body.text).toContain("127.0.0.1");
     expect(res.body.linkPreview).toBeFalsy();
+  });
+
+  it("returns configured admin contact for non-admin users", async () => {
+    await signupAndLogin("admin@example.com", "admin_user");
+    const member = await signupAndLogin("member@example.com", "member_user");
+    ENV.ADMIN_USERNAME = "Admin_User";
+
+    const res = await request(app)
+      .get("/api/messages/admin-contact")
+      .set("Cookie", member.cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.username).toBe("admin_user");
+    expect(res.body.password).toBeUndefined();
+  });
+
+  it("returns null admin contact for the admin user", async () => {
+    const admin = await signupAndLogin("admin-self@example.com", "admin_self");
+    ENV.ADMIN_USERNAME = "admin_self";
+
+    const res = await request(app)
+      .get("/api/messages/admin-contact")
+      .set("Cookie", admin.cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toBeNull();
+  });
+
+  it("returns null admin contact when admin username is missing", async () => {
+    const member = await signupAndLogin("missing-admin@example.com", "member_missing");
+
+    const res = await request(app)
+      .get("/api/messages/admin-contact")
+      .set("Cookie", member.cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toBeNull();
+  });
+
+  it("returns null admin contact when configured admin does not exist", async () => {
+    const member = await signupAndLogin("ghost-admin@example.com", "member_ghost");
+    ENV.ADMIN_USERNAME = "ghost_admin";
+
+    const res = await request(app)
+      .get("/api/messages/admin-contact")
+      .set("Cookie", member.cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toBeNull();
   });
 });
