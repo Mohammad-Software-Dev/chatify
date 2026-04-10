@@ -16,6 +16,20 @@ const BASE_URL =
   import.meta.env.MODE === "development" ? "http://localhost:3000" : "/";
 
 const SUPPORTED_ENVELOPE_VERSIONS = new Set([1]);
+const CHAT_EVENT_TYPES = new Set([
+  "message:new",
+  "message:status",
+  "message:reaction",
+  "message:updated",
+  "message:deleted",
+  "message:pinned",
+  "message:starred",
+  "message:queued",
+  "message:retrying",
+  "message:failed",
+  "typing:start",
+  "typing:stop",
+]);
 const seenPresenceEventIds = new Set();
 const MAX_SEEN_PRESENCE = 1000;
 const markPresenceSeen = (id) => {
@@ -203,6 +217,7 @@ export const useAuthStore = create((set, get) => ({
         });
         return;
       }
+      if (CHAT_EVENT_TYPES.has(event.type)) return;
       if (import.meta.env.DEV) {
         console.warn("Unhandled socket event", event.type, event);
       }
@@ -210,6 +225,16 @@ export const useAuthStore = create((set, get) => ({
   },
 
   disconnectSocket: () => {
-    if (get().socket?.connected) get().socket.disconnect();
+    const socket = get().socket;
+    if (socket) {
+      socket.off("socket:event");
+      if (socket.connected) socket.disconnect();
+    }
+    set({
+      socket: null,
+      onlineUsers: [],
+      lastSeenByUserId: {},
+      presenceByUserId: {},
+    });
   },
 }));

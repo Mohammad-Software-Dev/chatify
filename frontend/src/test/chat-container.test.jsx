@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 
 const searchMessages = vi.fn();
 const clearSearchResults = vi.fn();
@@ -51,7 +51,7 @@ describe("ChatContainer search", () => {
   it("calls search when typing in search input", async () => {
     render(<ChatContainer />);
     const timeoutSpy = vi
-      .spyOn(global, "setTimeout")
+      .spyOn(globalThis, "setTimeout")
       .mockImplementation((fn) => {
         fn();
         return 0;

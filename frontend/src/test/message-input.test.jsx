@@ -19,9 +19,13 @@ vi.mock("../store/useChatStore", () => ({
   useChatStore: () => storeState,
 }));
 
-import MessageInput from "../components/MessageInput";
+import MessageInput, { MAX_CONCURRENT_UPLOADS } from "../components/MessageInput";
 
 describe("MessageInput drag & drop", () => {
+  it("uses sequential attachment uploads", () => {
+    expect(MAX_CONCURRENT_UPLOADS).toBe(1);
+  });
+
   it("shows drag overlay on drag enter and hides on drag leave", () => {
     render(<MessageInput />);
 

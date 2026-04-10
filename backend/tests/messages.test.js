@@ -8,7 +8,8 @@ process.env.MESSAGE_ENC_STORE_PLAINTEXT =
   process.env.MESSAGE_ENC_STORE_PLAINTEXT || "true";
 
 const app = createApp();
-const describeDb = process.env.SKIP_DB_TESTS ? describe.skip : describe;
+const describeDb =
+  process.env.SKIP_DB_TESTS === "true" ? describe.skip : describe;
 
 const signupAndLogin = async (email, username) => {
   await request(app).post("/api/auth/signup").send({
@@ -116,6 +117,7 @@ describeDb("Messages", () => {
       .set("Cookie", sender.cookie)
       .send({ publicId: uploadRes.body.publicId });
     expect(deleteRes.status).toBe(200);
+    expect(deleteRes.body.result).toBe("ok");
   });
 
   it("searches contacts by username with exact match first", async () => {
@@ -134,7 +136,7 @@ describeDb("Messages", () => {
       },
     ]);
 
-    const { cookie } = await signupAndLogin("e@example.com", "user_e");
+    const { cookie, user } = await signupAndLogin("e@example.com", "mike_self");
 
     const res = await request(app)
       .get("/api/messages/contacts")
@@ -142,5 +144,32 @@ describeDb("Messages", () => {
       .query({ username: "mike" });
     expect(res.status).toBe(200);
     expect(res.body[0].username).toBe("mike");
+    expect(res.body.some((contact) => contact._id === user._id.toString())).toBe(false);
+  });
+
+  it("rejects invalid reply target ids", async () => {
+    const sender = await signupAndLogin("reply-a@example.com", "reply_a");
+    const receiver = await signupAndLogin("reply-b@example.com", "reply_b");
+
+    const res = await request(app)
+      .post(`/api/messages/send/${receiver.user._id}`)
+      .set("Cookie", sender.cookie)
+      .send({ text: "bad reply", replyToMessageId: "not-an-object-id" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("sends messages without previews for unsafe preview urls", async () => {
+    const sender = await signupAndLogin("unsafe-a@example.com", "unsafe_a");
+    const receiver = await signupAndLogin("unsafe-b@example.com", "unsafe_b");
+
+    const res = await request(app)
+      .post(`/api/messages/send/${receiver.user._id}`)
+      .set("Cookie", sender.cookie)
+      .send({ text: "internal http://127.0.0.1/private" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.text).toContain("127.0.0.1");
+    expect(res.body.linkPreview).toBeFalsy();
   });
 });

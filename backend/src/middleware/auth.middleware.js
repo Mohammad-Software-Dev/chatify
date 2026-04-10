@@ -15,11 +15,21 @@ export const protectRoute = async (req, res, next) => {
       return res.status(401).json({ message: "Unauthorized - Invalid token" });
 
     const user = await User.findById(decoded.userId).select("-password");
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user)
+      return res
+        .status(401)
+        .json({ message: "Unauthorized - User not found" });
 
     req.user = user;
     next();
   } catch (error) {
+    if (
+      error?.name === "JsonWebTokenError" ||
+      error?.name === "TokenExpiredError" ||
+      error?.name === "CastError"
+    ) {
+      return res.status(401).json({ message: "Unauthorized - Invalid token" });
+    }
     console.log("Error in protectRoute middleware:", error);
     res.status(500).json({ message: "Internal server error" });
   }

@@ -2,12 +2,14 @@ import { describe, it, expect, beforeEach } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app.js";
 import User from "../src/models/User.js";
+import jwt from "jsonwebtoken";
 
 process.env.MESSAGE_ENC_STORE_PLAINTEXT =
   process.env.MESSAGE_ENC_STORE_PLAINTEXT || "true";
 
 const app = createApp();
-const describeDb = process.env.SKIP_DB_TESTS ? describe.skip : describe;
+const describeDb =
+  process.env.SKIP_DB_TESTS === "true" ? describe.skip : describe;
 
 const getCookie = (cookies, name) =>
   cookies?.find((cookie) => cookie.startsWith(`${name}=`));
@@ -191,5 +193,20 @@ describeDb("Auth", () => {
       .send({ username: "user_two" });
     expect(updateRes.status).toBe(400);
     expect(updateRes.body.message).toMatch(/Username already exists/i);
+  });
+
+  it("returns 401 for invalid and expired access tokens", async () => {
+    const invalidRes = await request(app)
+      .get("/api/auth/check")
+      .set("Cookie", "jwt=not-a-valid-token");
+    expect(invalidRes.status).toBe(401);
+
+    const expiredToken = jwt.sign({ userId: "507f1f77bcf86cd799439011" }, process.env.JWT_SECRET, {
+      expiresIn: "-1s",
+    });
+    const expiredRes = await request(app)
+      .get("/api/auth/check")
+      .set("Cookie", `jwt=${expiredToken}`);
+    expect(expiredRes.status).toBe(401);
   });
 });

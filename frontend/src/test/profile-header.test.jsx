@@ -38,7 +38,7 @@ describe("ProfileHeader username update", () => {
   beforeEach(() => {
     axiosGetMock.mockReset();
     updateUsernameMock.mockReset();
-    global.Audio = class {
+    globalThis.Audio = class {
       play() {
         return Promise.resolve();
       }

@@ -120,6 +120,7 @@ messageSchema.index({ receiverId: 1, senderId: 1, createdAt: -1 });
 messageSchema.index({ receiverId: 1, status: 1, createdAt: -1 });
 messageSchema.index({ text: "text" });
 
-const Message = mongoose.model("Message", messageSchema);
+const Message =
+  mongoose.models.Message || mongoose.model("Message", messageSchema);
 
 export default Message;

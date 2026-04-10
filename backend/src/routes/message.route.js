@@ -59,13 +59,6 @@ router.get("/search/:id", validate(searchMessagesSchema), searchMessages);
 router.get("/pinned/:id", validate(listPinnedSchema), getPinnedMessages);
 router.get("/starred/:id", validate(listStarredSchema), getStarredMessages);
 router.get("/item/:id", validate(getMessageByIdSchema), getMessageById);
-router.get("/:id", validate(getMessagesSchema), getMessagesByUserId);
-router.put("/:id", validate(editMessageSchema), editMessage);
-router.delete("/:id", validate(deleteMessageSchema), deleteMessage);
-router.post("/:id/pin", validate(pinToggleSchema), togglePin);
-router.post("/:id/star", validate(starToggleSchema), toggleStar);
-router.post("/:id/reactions", validate(addReactionSchema), addReaction);
-router.put("/read/:id", validate(markReadSchema), markMessagesAsRead);
 router.post(
   "/attachments",
   attachmentLimiter,
@@ -73,6 +66,13 @@ router.post(
   uploadAttachment
 );
 router.delete("/attachments", validate(attachmentDeleteSchema), deleteAttachment);
+router.get("/:id", validate(getMessagesSchema), getMessagesByUserId);
+router.put("/:id", validate(editMessageSchema), editMessage);
+router.delete("/:id", validate(deleteMessageSchema), deleteMessage);
+router.post("/:id/pin", validate(pinToggleSchema), togglePin);
+router.post("/:id/star", validate(starToggleSchema), toggleStar);
+router.post("/:id/reactions", validate(addReactionSchema), addReaction);
+router.put("/read/:id", validate(markReadSchema), markMessagesAsRead);
 router.post("/send/:id", validate(sendMessageSchema), sendMessage);
 
 export default router;

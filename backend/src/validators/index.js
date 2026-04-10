@@ -56,7 +56,7 @@ export const sendMessageSchema = z.object({
     image: z.string().optional(),
     images: z.array(z.string()).max(4).optional(),
     clientMessageId: z.string().optional(),
-    replyToMessageId: z.string().optional(),
+    replyToMessageId: objectId.optional(),
   }),
 });
 

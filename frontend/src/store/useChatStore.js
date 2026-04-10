@@ -10,8 +10,11 @@ const BASE_RETRY_DELAY_MS = 1000;
 const MAX_RETRY_ATTEMPTS = 3;
 const typingTimeouts = new Map();
 const SUPPORTED_ENVELOPE_VERSIONS = new Set([1]);
+const PRESENCE_EVENT_TYPES = new Set(["presence:list", "presence:update"]);
 const seenSocketEventIds = new Set();
 const MAX_SEEN_EVENTS = 2000;
+let messageSocketEventHandler = null;
+let messageSocketWithHandler = null;
 const markEventSeen = (id) => {
   if (!id) return false;
   if (seenSocketEventIds.has(id)) return false;
@@ -443,7 +446,7 @@ export const useChatStore = create((set, get) => ({
         savePendingQueue(queue);
         return { pendingQueue: queue };
       });
-    } catch (error) {
+    } catch {
       const nextAttempt = readyEntry.attempt + 1;
       if (nextAttempt >= MAX_RETRY_ATTEMPTS) {
         set((state) => ({
@@ -792,9 +795,11 @@ export const useChatStore = create((set, get) => ({
     const socket = useAuthStore.getState().socket;
     if (!socket) return;
 
-    socket.off("socket:event");
+    if (messageSocketWithHandler && messageSocketEventHandler) {
+      messageSocketWithHandler.off("socket:event", messageSocketEventHandler);
+    }
 
-    socket.on("socket:event", (event) => {
+    messageSocketEventHandler = (event) => {
       if (!event?.type) return;
       const version = event.v ?? 1;
       if (!SUPPORTED_ENVELOPE_VERSIONS.has(version)) {
@@ -803,6 +808,7 @@ export const useChatStore = create((set, get) => ({
         }
         return;
       }
+      if (PRESENCE_EVENT_TYPES.has(event.type)) return;
       if (!markEventSeen(event.id)) return;
       const type = event.type;
       const payload = event.payload;
@@ -1194,12 +1200,16 @@ export const useChatStore = create((set, get) => ({
       if (import.meta.env.DEV) {
         console.warn("Unhandled socket event", type, event);
       }
-    });
+    };
+    messageSocketWithHandler = socket;
+    socket.on("socket:event", messageSocketEventHandler);
   },
 
   unsubscribeFromMessages: () => {
-    const socket = useAuthStore.getState().socket;
-    socket.off("socket:event");
+    if (!messageSocketWithHandler || !messageSocketEventHandler) return;
+    messageSocketWithHandler.off("socket:event", messageSocketEventHandler);
+    messageSocketEventHandler = null;
+    messageSocketWithHandler = null;
   },
 
   emitTypingStart: (toUserId) => {

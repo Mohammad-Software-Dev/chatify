@@ -4,6 +4,7 @@ import Message from "../models/Message.js";
 import User from "../models/User.js";
 import Conversation from "../models/Conversation.js";
 import mongoose from "mongoose";
+import { fetchLinkPreview } from "../lib/linkPreview.js";
 import {
   decryptJson,
   decryptString,
@@ -52,46 +53,6 @@ const extractFirstUrl = (text) => {
   return match ? match[0] : null;
 };
 
-const fetchLinkPreview = async (url) => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 3000);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "ChatifyBot/1.0",
-      },
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-    const getMeta = (property) => {
-      const match = html.match(
-        new RegExp(`<meta[^>]+property=["']${property}["'][^>]*>`, "i")
-      );
-      if (!match) return null;
-      const contentMatch = match[0].match(/content=["']([^"']+)["']/i);
-      return contentMatch ? contentMatch[1] : null;
-    };
-    const title =
-      getMeta("og:title") ||
-      html.match(/<title>([^<]*)<\/title>/i)?.[1] ||
-      url;
-    const description = getMeta("og:description");
-    const image = getMeta("og:image");
-
-    return {
-      url,
-      title,
-      description,
-      image,
-    };
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-};
-
 const isParticipant = (message, userId) => {
   if (!message) return false;
   const id = userId.toString();
@@ -119,10 +80,12 @@ export const getAllContacts = async (req, res) => {
       .lean();
 
     const remainingLimit = exactMatch ? 19 : 20;
+    const excludedIds = [loggedInUserId];
+    if (exactMatch?._id) excludedIds.push(exactMatch._id);
+
     const partialUsers = await User.find({
-      _id: { $ne: loggedInUserId },
+      _id: { $nin: excludedIds },
       username: { $regex: new RegExp(escapeRegex(query), "i") },
-      ...(exactMatch ? { _id: { $ne: exactMatch._id } } : {}),
     })
       .select("-password")
       .limit(remainingLimit)

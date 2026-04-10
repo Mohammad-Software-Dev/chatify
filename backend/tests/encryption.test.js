@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import request from "supertest";
 import mongoose from "mongoose";
 
-const describeDb = process.env.SKIP_DB_TESTS ? describe.skip : describe;
+const describeDb =
+  process.env.SKIP_DB_TESTS === "true" ? describe.skip : describe;
 
 const buildApp = async (envOverrides = {}) => {
   vi.resetModules();

@@ -1,6 +1,6 @@
 import { XIcon } from "lucide-react";
 import { useChatStore } from "../store/useChatStore";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useShallow } from "zustand/react/shallow";
 
@@ -27,19 +27,7 @@ function ChatHeader() {
       presenceByUserId: state.presenceByUserId,
     }))
   );
-  if (!selectedUser) return null;
-
-  const isOnline = onlineUsers?.includes(selectedUser._id);
-  const lastSeen =
-    presenceByUserId?.[selectedUser._id]?.lastSeenAt ||
-    lastSeenByUserId?.[selectedUser._id] ||
-    selectedUser.lastSeenAt;
-  const lastActiveAt =
-    presenceByUserId?.[selectedUser._id]?.lastActiveAt ||
-    selectedUser.lastActiveAt;
-  const isActiveNow = lastActiveAt
-    ? Date.now() - new Date(lastActiveAt).getTime() < 45000
-    : false;
+  const [nowMs, setNowMs] = useState(0);
 
   useEffect(() => {
     const handleEscKey = (event) => {
@@ -56,6 +44,27 @@ function ChatHeader() {
     // cleanup function
     return () => window.removeEventListener("keydown", handleEscKey);
   }, [setSelectedUser, replyToMessage, clearReplyToMessage]);
+
+  useEffect(() => {
+    const updateNow = () => setNowMs(Date.now());
+    updateNow();
+    const intervalId = setInterval(updateNow, 15000);
+    return () => clearInterval(intervalId);
+  }, []);
+
+  if (!selectedUser) return null;
+
+  const isOnline = onlineUsers?.includes(selectedUser._id);
+  const lastSeen =
+    presenceByUserId?.[selectedUser._id]?.lastSeenAt ||
+    lastSeenByUserId?.[selectedUser._id] ||
+    selectedUser.lastSeenAt;
+  const lastActiveAt =
+    presenceByUserId?.[selectedUser._id]?.lastActiveAt ||
+    selectedUser.lastActiveAt;
+  const isActiveNow = lastActiveAt && nowMs
+    ? nowMs - new Date(lastActiveAt).getTime() < 45000
+    : false;
 
   return (
     <div

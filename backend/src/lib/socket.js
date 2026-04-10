@@ -49,7 +49,7 @@ export function getReceiverSocketIds(userId) {
 const userSocketMap = new Map(); // {userId:Set<socketId>}
 
 io.on("connection", (socket) => {
-  console.log("A user connected", socket.user.fullName);
+  console.log("A user connected");
 
   const userId = socket.userId;
   const now = new Date();
@@ -127,7 +127,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("A user disconnected", socket.user.fullName);
+    console.log("A user disconnected");
     const disconnectTime = new Date();
     const sockets = userSocketMap.get(userId);
     if (sockets) {

@@ -111,7 +111,7 @@ export const signup = async (req, res) => {
 
     const user = await User.findOne({ email });
     if (user) {
-      console.log("Signup failed: email already exists", email);
+      console.log("Signup failed: email already exists");
       return res.status(400).json({ message: "Email already exists" });
     }
 
@@ -127,7 +127,7 @@ export const signup = async (req, res) => {
         username: finalUsername,
       }).select("_id");
       if (existingUsername) {
-        console.log("Signup failed: username already exists", finalUsername);
+        console.log("Signup failed: username already exists");
         return res.status(400).json({ message: "Username already exists" });
       }
     } else {
@@ -191,7 +191,7 @@ export const login = async (req, res) => {
   try {
     const user = await User.findOne({ email });
     if (!user) {
-      console.log("Login failed: user not found", email);
+      console.log("Login failed: user not found");
       return res.status(400).json({ message: "Invalid credentials" });
     }
     // never tell the client which one is incorrect: password or email
@@ -199,7 +199,7 @@ export const login = async (req, res) => {
     const ensuredUser = await ensureUsernameForUser(user);
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
     if (!isPasswordCorrect) {
-      console.log("Login failed: invalid password", email);
+      console.log("Login failed: invalid password");
       return res.status(400).json({ message: "Invalid credentials" });
     }
 

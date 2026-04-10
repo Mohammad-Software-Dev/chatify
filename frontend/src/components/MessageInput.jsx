@@ -13,7 +13,7 @@ import { axiosInstance } from "../lib/axios";
 import { useShallow } from "zustand/react/shallow";
 
 const MAX_ATTACHMENTS = 4;
-const MAX_CONCURRENT_UPLOADS = 2;
+export const MAX_CONCURRENT_UPLOADS = 1;
 const ATTACHMENTS_STORAGE_PREFIX = "chatify.attachmentsDraft";
 
 const getDraftKey = (userId) =>
@@ -85,9 +85,10 @@ function MessageInput() {
   }, [emitTypingStop, selectedUser?._id]);
 
   useEffect(() => {
+    const uploadControllers = uploadControllersRef.current;
     return () => {
-      uploadControllersRef.current.forEach((controller) => controller.abort());
-      uploadControllersRef.current.clear();
+      uploadControllers.forEach((controller) => controller.abort());
+      uploadControllers.clear();
     };
   }, []);
 

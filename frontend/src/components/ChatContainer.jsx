@@ -1,5 +1,4 @@
 import {
-  forwardRef,
   memo,
   useCallback,
   useEffect,
@@ -92,6 +91,8 @@ function ChatContainer() {
   const { authUser } = useAuthStore(
     useShallow((state) => ({ authUser: state.authUser }))
   );
+  const selectedUserId = selectedUser?._id;
+  const firstMessageId = messages[0]?._id;
   const listRef = useRef(null);
   const listOuterRef = useRef(null);
   const listWrapperRef = useRef(null);
@@ -138,6 +139,41 @@ function ChatContainer() {
     });
   };
 
+  const scrollToMessage = useCallback(
+    async (messageId) => {
+      const index = messageIdToIndexRef.current.get(String(messageId));
+      if (index === undefined) {
+        const fetched = await fetchMessageById(messageId);
+        if (!fetched) return;
+        requestAnimationFrame(() => {
+          const targetIndex = messageIdToIndexRef.current.get(
+            String(messageId)
+          );
+          if (targetIndex === undefined) {
+            toast.error("Message not loaded yet");
+            return;
+          }
+          listRef.current?.scrollToItem(targetIndex, "center");
+          setHighlightMessageId(messageId);
+          setTimeout(() => {
+            setHighlightMessageId((current) =>
+              current === messageId ? null : current
+            );
+          }, 1200);
+        });
+        return;
+      }
+      listRef.current?.scrollToItem(index, "center");
+      setHighlightMessageId(messageId);
+      setTimeout(() => {
+        setHighlightMessageId((current) =>
+          current === messageId ? null : current
+        );
+      }, 1200);
+    },
+    [fetchMessageById]
+  );
+
   useEffect(() => {
     messageIdToIndexRef.current = messageIdToIndex;
   }, [messageIdToIndex]);
@@ -170,7 +206,7 @@ function ChatContainer() {
   useEffect(() => {
     sizeMapRef.current.clear();
     listRef.current?.resetAfterIndex(0, true);
-  }, [messages.length, messages[0]?._id, isTyping]);
+  }, [messages.length, firstMessageId, isTyping]);
 
   const setRowSize = useCallback((index, size) => {
     if (!Number.isFinite(size)) return;
@@ -191,7 +227,8 @@ function ChatContainer() {
   );
 
   useEffect(() => {
-    getMessagesByUserId(selectedUser._id);
+    if (!selectedUserId) return;
+    getMessagesByUserId(selectedUserId);
     hasInitialScrollRef.current = false;
     prevMessageCountRef.current = 0;
     isAtBottomRef.current = true;
@@ -200,14 +237,14 @@ function ChatContainer() {
     setHasNewMessages(false);
     setIsInitialPositioned(false);
     clearSearchResults();
-  }, [selectedUser, getMessagesByUserId, clearSearchResults]);
+  }, [selectedUserId, getMessagesByUserId, clearSearchResults]);
 
   useEffect(() => {
     if (!pendingScrollMessageId) return;
     const targetId = pendingScrollMessageId;
     clearPendingScrollMessageId();
     scrollToMessage(targetId);
-  }, [pendingScrollMessageId, clearPendingScrollMessageId]);
+  }, [pendingScrollMessageId, clearPendingScrollMessageId, scrollToMessage]);
 
   useEffect(() => {
     return () => {
@@ -226,10 +263,10 @@ function ChatContainer() {
       return;
     }
     const timer = setTimeout(() => {
-      searchMessages(selectedUser._id, searchQuery);
+      searchMessages(selectedUserId, searchQuery);
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchQuery, searchMessages, selectedUser._id, clearSearchResults, viewMode]);
+  }, [searchQuery, searchMessages, selectedUserId, clearSearchResults, viewMode]);
 
   useEffect(() => {
     if (!editingMessageId) return;
@@ -252,7 +289,7 @@ function ChatContainer() {
     requestAnimationFrame(() => {
       setIsInitialPositioned(true);
     });
-  }, [messages.length, listHeight, selectedUser?._id, scrollToLatest]);
+  }, [messages.length, listHeight, selectedUserId, scrollToLatest]);
 
   useEffect(() => {
     const outer = listOuterRef.current;
@@ -268,7 +305,7 @@ function ChatContainer() {
     }
 
     prevMessageCountRef.current = messages.length;
-  }, [messages]);
+  }, [messages, scrollToLatest]);
 
   useEffect(() => {
     const outer = listOuterRef.current;
@@ -349,46 +386,14 @@ function ChatContainer() {
     }
   };
 
-  const scrollToMessage = async (messageId) => {
-    const index = messageIdToIndexRef.current.get(String(messageId));
-    if (index === undefined) {
-      const fetched = await fetchMessageById(messageId);
-      if (!fetched) return;
-      requestAnimationFrame(() => {
-        const targetIndex = messageIdToIndexRef.current.get(
-          String(messageId)
-        );
-        if (targetIndex === undefined) {
-          toast.error("Message not loaded yet");
-          return;
-        }
-        listRef.current?.scrollToItem(targetIndex, "center");
-        setHighlightMessageId(messageId);
-        setTimeout(() => {
-          setHighlightMessageId((current) =>
-            current === messageId ? null : current
-          );
-        }, 1200);
-      });
-      return;
-    }
-    listRef.current?.scrollToItem(index, "center");
-    setHighlightMessageId(messageId);
-    setTimeout(() => {
-      setHighlightMessageId((current) =>
-        current === messageId ? null : current
-      );
-    }, 1200);
-  };
-
   const openPinnedView = () => {
     setViewMode((current) => (current === "pinned" ? "all" : "pinned"));
-    loadPinnedMessages(selectedUser._id);
+    loadPinnedMessages(selectedUserId);
   };
 
   const openStarredView = () => {
     setViewMode((current) => (current === "starred" ? "all" : "starred"));
-    loadStarredMessages(selectedUser._id);
+    loadStarredMessages(selectedUserId);
   };
 
   const isPinnedByMe = (msg) =>
@@ -446,9 +451,10 @@ function ChatContainer() {
     const rowRef = useRef(null);
     const isTypingRow = isTyping && index === messages.length;
     const msg = isTypingRow ? null : messages[index];
+    const msgKey = msg?._id || msg?.clientMessageId || index;
 
     useLayoutEffect(() => {
-      if (!rowRef.current || isTypingRow || !msg) return;
+      if (!rowRef.current || isTypingRow || !msgKey) return;
       const measure = () => {
         const height = rowRef.current.getBoundingClientRect().height;
         setRowSize(index, height + 16);
@@ -458,7 +464,7 @@ function ChatContainer() {
       const observer = new ResizeObserver(measure);
       observer.observe(rowRef.current);
       return () => observer.disconnect();
-    }, [index, msg?._id, isTypingRow, setRowSize]);
+    }, [index, msgKey, isTypingRow]);
 
     if (isTypingRow) {
       return (
