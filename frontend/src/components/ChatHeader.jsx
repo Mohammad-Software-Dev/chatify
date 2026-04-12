@@ -89,7 +89,7 @@ function ChatHeader() {
           <p
             className={`text-sm ${
               isTyping || isActiveNow || isOnline
-                ? "status-success"
+                ? "text-emerald-400"
                 : "text-slate-400"
             }`}
           >

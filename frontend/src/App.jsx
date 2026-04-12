@@ -13,8 +13,13 @@ function App() {
     checkAuth();
   }, [checkAuth]);
   if (isCheckingAuth) return <PageLoader />;
+
+  const shellPadding = authUser ? "p-2 md:p-3" : "p-4";
+
   return (
-    <div className="min-h-screen app-shell relative flex items-center justify-center p-4 overflow-hidden">
+    <div
+      className={`min-h-screen app-shell relative flex items-center justify-center ${shellPadding} overflow-hidden`}
+    >
       {/* DECORATORS - GRID BG & GLOW SHAPES */}
       <div className="absolute inset-0 app-grid bg-size-[14px_24px]" />
       <div className="absolute top-0 -left-4 size-72 app-glow-1 blur-[70px]" />

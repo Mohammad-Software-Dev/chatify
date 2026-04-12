@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuthStore } from "../store/useAuthStore";
 import BorderAnimatedContainer from "../components/BorderAnimatedContainer";
 import {
@@ -8,10 +8,11 @@ import {
   UserIcon,
   LoaderIcon,
   CheckCircle2Icon,
-  XCircleIcon,
 } from "lucide-react";
 import { Link } from "react-router";
 import { axiosInstance } from "../lib/axios";
+
+const MAX_AUTO_USERNAME_ATTEMPTS = 5;
 
 const createDefaultUsername = () =>
   `user_${Math.floor(1000 + Math.random() * 9000)}`;
@@ -29,63 +30,153 @@ function SignUpPage() {
   const [checkedUsername, setCheckedUsername] = useState("");
   const [isCheckingUsername, setIsCheckingUsername] = useState(false);
   const { signup, isSigningUp } = useAuthStore();
+  const initialUsernameRef = useRef(formData.username);
+  const autoCheckStartedRef = useRef(false);
+  const latestUsernameCheckIdRef = useRef(0);
+  const hasUserEditedUsernameRef = useRef(false);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    signup(formData);
-  };
-
-  const handleUsernameChange = (value) => {
-    setFormData({ ...formData, username: value });
+  const resetUsernameVerification = useCallback(() => {
     setUsernameStatus("unchecked");
     setUsernameMessage("");
     setUsernameSuggestions([]);
     setCheckedUsername("");
-  };
+  }, []);
 
-  const handleCheckUsername = async () => {
-    const rawUsername = formData.username?.trim();
-    if (!rawUsername) {
+  const checkUsernameAvailability = useCallback(async (rawUsername) => {
+    const trimmedUsername = rawUsername?.trim();
+    if (!trimmedUsername) {
       setUsernameStatus("error");
       setUsernameMessage("Username is required");
       setUsernameSuggestions([]);
-      return;
+      setCheckedUsername("");
+      return { status: "error" };
     }
 
-    try {
-      setIsCheckingUsername(true);
-      const res = await axiosInstance.get(
-        `/auth/check-username?username=${encodeURIComponent(rawUsername)}`
-      );
+    const requestId = ++latestUsernameCheckIdRef.current;
+    setIsCheckingUsername(true);
 
-      if (res.data?.normalizedUsername) {
-        setFormData((prev) => ({
-          ...prev,
-          username: res.data.normalizedUsername,
-        }));
+    try {
+      const res = await axiosInstance.get(
+        `/auth/check-username?username=${encodeURIComponent(trimmedUsername)}`
+      );
+      if (requestId !== latestUsernameCheckIdRef.current) {
+        return { status: "stale" };
       }
+
+      const normalizedUsername = res.data?.normalizedUsername || trimmedUsername;
+      setFormData((prev) =>
+        prev.username === normalizedUsername
+          ? prev
+          : { ...prev, username: normalizedUsername }
+      );
 
       if (res.data?.available) {
         setUsernameStatus("available");
-        setUsernameMessage("This name is available.");
+        setUsernameMessage("");
         setUsernameSuggestions([]);
-        setCheckedUsername(res.data.normalizedUsername || rawUsername);
-      } else {
-        setUsernameStatus("taken");
-        setUsernameMessage("This username is already taken.");
-        setUsernameSuggestions(res.data?.suggestions || []);
-        setCheckedUsername("");
+        setCheckedUsername(normalizedUsername);
+        return { status: "available", normalizedUsername };
       }
+
+      setUsernameStatus("taken");
+      setUsernameMessage("This username is already taken.");
+      setUsernameSuggestions(res.data?.suggestions || []);
+      setCheckedUsername("");
+      return { status: "taken", normalizedUsername };
     } catch (error) {
+      if (requestId !== latestUsernameCheckIdRef.current) {
+        return { status: "stale" };
+      }
+
       setUsernameStatus("error");
       setUsernameMessage(
         error.response?.data?.message || "Unable to check username"
       );
       setUsernameSuggestions([]);
       setCheckedUsername("");
+      return { status: "error" };
     } finally {
-      setIsCheckingUsername(false);
+      if (requestId === latestUsernameCheckIdRef.current) {
+        setIsCheckingUsername(false);
+      }
     }
+  }, []);
+
+  useEffect(() => {
+    if (autoCheckStartedRef.current) return;
+    autoCheckStartedRef.current = true;
+
+    let cancelled = false;
+
+    const autoCheckGeneratedUsername = async () => {
+      let candidate = initialUsernameRef.current;
+
+      for (let attempt = 0; attempt < MAX_AUTO_USERNAME_ATTEMPTS; attempt += 1) {
+        if (cancelled || hasUserEditedUsernameRef.current) return;
+
+        const result = await checkUsernameAvailability(candidate);
+        if (cancelled || hasUserEditedUsernameRef.current) return;
+
+        if (result.status === "available") {
+          return;
+        }
+
+        if (result.status === "error" || result.status === "stale") {
+          resetUsernameVerification();
+          return;
+        }
+
+        if (attempt === MAX_AUTO_USERNAME_ATTEMPTS - 1) {
+          const fallbackUsername = createDefaultUsername();
+          setFormData((prev) => ({ ...prev, username: fallbackUsername }));
+          resetUsernameVerification();
+          return;
+        }
+
+        candidate = createDefaultUsername();
+        setFormData((prev) => ({ ...prev, username: candidate }));
+        resetUsernameVerification();
+      }
+    };
+
+    autoCheckGeneratedUsername();
+
+    return () => {
+      cancelled = true;
+      autoCheckStartedRef.current = false;
+      latestUsernameCheckIdRef.current += 1;
+    };
+  }, [checkUsernameAvailability, resetUsernameVerification]);
+
+  const handleUsernameChange = (value) => {
+    hasUserEditedUsernameRef.current = true;
+    latestUsernameCheckIdRef.current += 1;
+    setIsCheckingUsername(false);
+    setFormData((prev) => ({ ...prev, username: value }));
+    resetUsernameVerification();
+  };
+
+  const handleCheckUsername = async () => {
+    const result = await checkUsernameAvailability(formData.username);
+    if (result.status !== "available") {
+      return;
+    }
+  };
+
+  const trimmedUsername = formData.username?.trim() || "";
+  const isUsernameVerified =
+    usernameStatus === "available" && checkedUsername === trimmedUsername;
+  const showUsernameCheckHint =
+    !isSigningUp &&
+    !isCheckingUsername &&
+    Boolean(trimmedUsername) &&
+    usernameStatus === "unchecked" &&
+    checkedUsername !== trimmedUsername;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (isSigningUp || !isUsernameVerified) return;
+    signup(formData);
   };
 
   return (
@@ -150,29 +241,27 @@ function SignUpPage() {
                         <button
                           type="button"
                           onClick={handleCheckUsername}
-                          disabled={
-                            isCheckingUsername || !formData.username?.trim()
-                          }
+                          disabled={isCheckingUsername || !trimmedUsername}
                           className="accent-bg rounded-lg px-4 py-2 text-sm font-medium focus:ring-2 accent-ring disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           {isCheckingUsername ? "Checking..." : "Check"}
                         </button>
                         {usernameStatus === "available" ? (
-                          <CheckCircle2Icon className="w-5 h-5 status-success" />
-                        ) : null}
-                        {usernameStatus === "taken" ||
-                        usernameStatus === "error" ? (
-                          <XCircleIcon className="w-5 h-5 status-danger" />
+                          <div className="flex items-center gap-1 bg-transparent text-sm font-medium text-emerald-400">
+                            <CheckCircle2Icon className="w-4 h-4 text-emerald-400" />
+                            <span>Available</span>
+                          </div>
                         ) : null}
                       </div>
                     </div>
 
-                    {usernameMessage ? (
+                    {(usernameStatus === "taken" || usernameStatus === "error") &&
+                    usernameMessage ? (
                       <p
                         className={`text-sm mt-2 ${
-                          usernameStatus === "available"
-                            ? "status-success"
-                            : "status-danger"
+                          usernameStatus === "taken" || usernameStatus === "error"
+                            ? "status-danger"
+                            : "text-slate-400"
                         }`}
                       >
                         {usernameMessage}
@@ -233,21 +322,24 @@ function SignUpPage() {
                   </div>
 
                   {/* SUBMIT BUTTON */}
-                  <button
-                    className="auth-btn"
-                    type="submit"
-                    disabled={
-                      isSigningUp ||
-                      usernameStatus !== "available" ||
-                      checkedUsername !== formData.username?.trim()
-                    }
-                  >
-                    {isSigningUp ? (
-                      <LoaderIcon className="w-full h-5 animate-spin text-center" />
-                    ) : (
-                      "Create Account"
-                    )}
-                  </button>
+                  <div>
+                    <button
+                      className="auth-btn"
+                      type="submit"
+                      disabled={isSigningUp || !isUsernameVerified}
+                    >
+                      {isSigningUp ? (
+                        <LoaderIcon className="w-full h-5 animate-spin text-center" />
+                      ) : (
+                        "Create Account"
+                      )}
+                    </button>
+                    {showUsernameCheckHint ? (
+                      <p className="mt-2 text-xs text-slate-400">
+                        Check username to continue.
+                      </p>
+                    ) : null}
+                  </div>
                 </form>
 
                 <div className="mt-6 text-center">
